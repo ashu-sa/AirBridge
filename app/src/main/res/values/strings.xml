@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Fitbit Air Vibe Bridge</string>
+    <string name="accessibility_desc">Automatically triggers Fitbit Air vibration when an incoming call is received.</string>
+</resources>
