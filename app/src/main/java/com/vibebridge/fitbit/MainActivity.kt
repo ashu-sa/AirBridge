@@ -15,6 +15,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.core.app.NotificationManagerCompat
 import com.vibebridge.fitbit.ui.FitbitDashboardScreen
 import com.vibebridge.fitbit.ui.theme.FitbitVibeTheme
 
@@ -23,6 +24,8 @@ class MainActivity : ComponentActivity() {
     private var hasPhonePerm by mutableStateOf(false)
     private var isA11yRunning by mutableStateOf(false)
     private var hasOverlayPerm by mutableStateOf(false)
+    private var hasNotificationListenerPerm by mutableStateOf(false)
+    private var notificationRulesText by mutableStateOf("")
 
     private val serviceReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -33,12 +36,23 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        refreshState()
+
         setContent {
             FitbitVibeTheme {
                 FitbitDashboardScreen(
                     hasPhonePerm = hasPhonePerm,
                     isA11yRunning = isA11yRunning,
                     hasOverlayPerm = hasOverlayPerm,
+                    hasNotificationListenerPerm = hasNotificationListenerPerm,
+                    rulesText = notificationRulesText,
+                    onSaveRulesText = { newText ->
+                        val success = AirBridgeNotificationSettings.saveRulesText(this, newText)
+                        if (success) {
+                            notificationRulesText = AirBridgeNotificationSettings.loadText(this)
+                        }
+                        success
+                    },
                     onRequestPhonePerm = {
                         requestPermissions(
                             arrayOf(Manifest.permission.READ_PHONE_STATE, Manifest.permission.READ_CALL_LOG),
@@ -56,6 +70,9 @@ class MainActivity : ComponentActivity() {
                             )
                             startActivity(intent)
                         }
+                    },
+                    onOpenNotificationListenerSettings = {
+                        startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
                     }
                 )
             }
@@ -113,5 +130,7 @@ class MainActivity : ComponentActivity() {
         } else {
             true
         }
+        hasNotificationListenerPerm = NotificationManagerCompat.getEnabledListenerPackages(this).contains(packageName)
+        notificationRulesText = AirBridgeNotificationSettings.loadText(this)
     }
 }

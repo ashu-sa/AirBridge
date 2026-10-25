@@ -70,37 +70,47 @@ class FitbitVibeAccessibilityService : AccessibilityService() {
             // CRITICAL: DO NOT SEND GLOBAL_ACTION_BACK!
             // Sending BACK pops the Vibration screen back to Device preferences / Home.
             // Instead, seamlessly restore the user's previously active app (WhatsApp, Telegram, etc.)
+            val service = instance
             Handler(Looper.getMainLooper()).postDelayed({
-                try {
-                    val prevPkg = lastForegroundPackage
-                    if (!prevPkg.isNullOrEmpty() &&
-                        prevPkg != "com.fitbit.FitbitMobile" &&
-                        prevPkg != context.packageName
-                    ) {
-                        val launchIntent = context.packageManager.getLaunchIntentForPackage(prevPkg)
-                        if (launchIntent != null) {
-                            launchIntent.addFlags(
-                                Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
-                                Intent.FLAG_ACTIVITY_NEW_TASK or
-                                Intent.FLAG_ACTIVITY_NO_ANIMATION
-                            )
-                            context.startActivity(launchIntent)
-                            Log.i(TAG, "Restored active app: $prevPkg without popping Fitbit vibration screen.")
-                            return@postDelayed
-                        }
-                    }
-
-                    // Fallback to Home screen without popping Fitbit
-                    val homeIntent = Intent(Intent.ACTION_MAIN).apply {
-                        addCategory(Intent.CATEGORY_HOME)
-                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION
-                    }
-                    context.startActivity(homeIntent)
-                    Log.i(TAG, "Restored Home screen without popping Fitbit vibration screen.")
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to restore previous app: ${e.message}")
-                }
+                service?.restoreForeground(context)
             }, 100)
+        }
+
+        fun executePattern(context: Context, pattern: AirHapticPattern, label: String? = null) {
+            val service = instance
+            if (service == null) {
+                Log.e(TAG, "Accessibility Service is not connected!")
+                return
+            }
+
+            if (isRinging) {
+                Log.i(TAG, "Call is currently ringing; ignoring notification haptic pattern.")
+                return
+            }
+
+            Log.i(TAG, "Executing haptic pattern '${pattern.wireName}' (${pattern.displayName}) for: $label")
+
+            // Show floating HUD for notification
+            CallOverlayManager.showOverlay(context, label ?: "Incoming Notification")
+
+            // Bring Fitbit to front
+            try {
+                val intent = Intent(Intent.ACTION_MAIN).apply {
+                    addCategory(Intent.CATEGORY_LAUNCHER)
+                    component = ComponentName("com.fitbit.FitbitMobile", "com.fitbit.HealthBrandedAlias")
+                    addFlags(
+                        Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
+                        Intent.FLAG_ACTIVITY_NO_ANIMATION or
+                        Intent.FLAG_ACTIVITY_NO_USER_ACTION
+                    )
+                }
+                context.startActivity(intent)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to launch Fitbit: ${e.message}")
+            }
+
+            service.runPatternStep(context, pattern, 0)
         }
 
         fun parkOnVibrationScreen(context: Context) {
@@ -331,6 +341,90 @@ class FitbitVibeAccessibilityService : AccessibilityService() {
                 Log.e(TAG, "Error in pulseRunnable: ${t.message}", t)
                 ringHandler.postDelayed(this, 750)
             }
+        }
+    }
+
+    fun dispatchToggle(): Boolean {
+        try {
+            val root = getFitbitRoot()
+            val targetLabel = if (toggleState) "Low" else "High"
+            toggleState = !toggleState
+            if (root != null) {
+                val onVib = autoNavigateStep(root)
+                if (onVib) {
+                    tapTargetButton(root, targetLabel)
+                    return true
+                }
+            }
+            tapTargetButtonFallback(targetLabel)
+            return true
+        } catch (t: Throwable) {
+            Log.e(TAG, "dispatchToggle error: ${t.message}")
+            return false
+        }
+    }
+
+    private fun runPatternStep(context: Context, pattern: AirHapticPattern, groupIndex: Int) {
+        if (isRinging) return
+        if (groupIndex >= pattern.groupCount) {
+            // All pulse groups completed! Release overlay and restore foreground
+            ringHandler.postDelayed({
+                CallOverlayManager.hideOverlay()
+                restoreForeground(context)
+            }, 300)
+            return
+        }
+
+        // 1. Toggle to alternate intensity (triggers first motor pulse)
+        dispatchToggle()
+
+        // 2. Wait 800ms (paceaitian's tested interval) and restore original intensity
+        ringHandler.postDelayed({
+            if (isRinging) return@postDelayed
+            dispatchToggle()
+
+            // 3. Delay before next pulse group
+            val delayBeforeNext = if (groupIndex < pattern.betweenGroupDelaysMillis.size) {
+                pattern.betweenGroupDelaysMillis[groupIndex]
+            } else {
+                0L
+            }
+
+            ringHandler.postDelayed({
+                runPatternStep(context, pattern, groupIndex + 1)
+            }, delayBeforeNext)
+        }, 800)
+    }
+
+    fun restoreForeground(context: Context) {
+        try {
+            val prevPkg = lastForegroundPackage
+            if (!prevPkg.isNullOrEmpty() &&
+                prevPkg != "com.fitbit.FitbitMobile" &&
+                prevPkg != context.packageName
+            ) {
+                val launchIntent = context.packageManager.getLaunchIntentForPackage(prevPkg)
+                if (launchIntent != null) {
+                    launchIntent.addFlags(
+                        Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
+                        Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_NO_ANIMATION
+                    )
+                    context.startActivity(launchIntent)
+                    Log.i(TAG, "Restored active app: $prevPkg without popping Fitbit vibration screen.")
+                    return
+                }
+            }
+
+            // Fallback to Home screen
+            val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+                addCategory(Intent.CATEGORY_HOME)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION
+            }
+            context.startActivity(homeIntent)
+            Log.i(TAG, "Restored Home screen without popping Fitbit vibration screen.")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to restore previous app: ${e.message}")
         }
     }
 

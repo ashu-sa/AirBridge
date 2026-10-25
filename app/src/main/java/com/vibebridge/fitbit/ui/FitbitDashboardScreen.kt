@@ -1,13 +1,10 @@
 package com.vibebridge.fitbit.ui
 
-import android.Manifest
-import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
-import android.os.PowerManager
 import android.provider.Settings
 import android.widget.Toast
 import androidx.compose.animation.*
@@ -36,7 +33,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.vibebridge.fitbit.FitbitVibeAccessibilityService
+import com.vibebridge.fitbit.*
 import com.vibebridge.fitbit.ui.theme.*
 
 enum class OemGuide(
@@ -125,16 +122,22 @@ fun FitbitDashboardScreen(
     hasPhonePerm: Boolean,
     isA11yRunning: Boolean,
     hasOverlayPerm: Boolean,
+    hasNotificationListenerPerm: Boolean,
+    rulesText: String,
+    onSaveRulesText: (String) -> Boolean,
     onRequestPhonePerm: () -> Unit,
     onOpenAccessibility: () -> Unit,
-    onOpenOverlaySettings: () -> Unit
+    onOpenOverlaySettings: () -> Unit,
+    onOpenNotificationListenerSettings: () -> Unit
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
 
-    // Testing simulation state
     var isSimulatingCall by remember { mutableStateOf(false) }
-    var isSinglePulsing by remember { mutableStateOf(false) }
+    var activeTestingPattern by remember { mutableStateOf<AirHapticPattern?>(null) }
+    var showRuleEditor by remember { mutableStateOf(false) }
+    var editedRulesText by remember(rulesText) { mutableStateOf(rulesText) }
+
     var activeOem by remember {
         mutableStateOf(
             when {
@@ -151,10 +154,15 @@ fun FitbitDashboardScreen(
         )
     }
 
-    var showExtendUnlockTroubleshooter by remember { mutableStateOf(true) }
+    var showExtendUnlockTroubleshooter by remember { mutableStateOf(false) }
+    var showGoldenGateWhitepaper by remember { mutableStateOf(false) }
     var expandedPillar by remember { mutableStateOf<Int?>(null) }
 
     val isArmed = hasPhonePerm && isA11yRunning
+
+    val parsedRules = remember(rulesText) {
+        AirBridgeNotificationSettings.loadRules(context)
+    }
 
     Column(
         modifier = Modifier
@@ -172,24 +180,24 @@ fun FitbitDashboardScreen(
         Spacer(modifier = Modifier.height(16.dp))
 
         // ==========================================
-        // 2. DIAGNOSTIC ACTION BENCH
+        // 2. DIAGNOSTIC ACTION BENCH & PATTERN PREVIEW
         // ==========================================
         DiagnosticActionBench(
-            isArmed = isArmed,
             isSimulatingCall = isSimulatingCall,
-            isSinglePulsing = isSinglePulsing,
-            onTestSinglePulse = {
+            activeTestingPattern = activeTestingPattern,
+            onTestPattern = { pattern ->
                 if (!isA11yRunning) {
                     Toast.makeText(context, "Enable Accessibility Service first!", Toast.LENGTH_SHORT).show()
                 } else {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    isSinglePulsing = true
-                    Toast.makeText(context, "⚡ Pulsing Fitbit Air for 2 sec...", Toast.LENGTH_SHORT).show()
-                    FitbitVibeAccessibilityService.startContinuousRinging(context, "+1 (555) 019-2834")
+                    activeTestingPattern = pattern
+                    Toast.makeText(context, "⚡ Pulsing '${pattern.displayName}'...", Toast.LENGTH_SHORT).show()
+                    CallReceiver.acquireWakeLock(context)
+                    FitbitVibeAccessibilityService.executePattern(context, pattern, "Pattern Test: ${pattern.wireName}")
+                    val totalDuration = 800L * pattern.groupCount + pattern.betweenGroupDelaysMillis.sum()
                     Handler(Looper.getMainLooper()).postDelayed({
-                        FitbitVibeAccessibilityService.stopContinuousRinging(context)
-                        isSinglePulsing = false
-                    }, 2000)
+                        activeTestingPattern = null
+                    }, totalDuration + 400)
                 }
             },
             onSimulateCall = {
@@ -198,7 +206,8 @@ fun FitbitDashboardScreen(
                 } else {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     isSimulatingCall = true
-                    Toast.makeText(context, "🔔 Simulating incoming call (5s loop)...", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "🔔 Simulating continuous call (5s loop)...", Toast.LENGTH_SHORT).show()
+                    CallReceiver.acquireWakeLock(context)
                     FitbitVibeAccessibilityService.startContinuousRinging(context, "Emergency Contact")
                     Handler(Looper.getMainLooper()).postDelayed({
                         FitbitVibeAccessibilityService.stopContinuousRinging(context)
@@ -220,21 +229,57 @@ fun FitbitDashboardScreen(
         Spacer(modifier = Modifier.height(16.dp))
 
         // ==========================================
-        // 3. HARDWARE & PERMISSION MATRIX
+        // 3. NOTIFICATION LISTENER & APP RULES SECTION
         // ==========================================
-        PermissionMatrixSection(
-            hasPhonePerm = hasPhonePerm,
-            isA11yRunning = isA11yRunning,
-            hasOverlayPerm = hasOverlayPerm,
-            onRequestPhonePerm = onRequestPhonePerm,
-            onOpenAccessibility = onOpenAccessibility,
-            onOpenOverlaySettings = onOpenOverlaySettings
+        NotificationRulesSection(
+            hasListenerPerm = hasNotificationListenerPerm,
+            rules = parsedRules,
+            rawText = editedRulesText,
+            isEditing = showRuleEditor,
+            onToggleEditing = { showRuleEditor = !showRuleEditor },
+            onTextChange = { editedRulesText = it },
+            onSave = {
+                val success = onSaveRulesText(editedRulesText)
+                if (success) {
+                    showRuleEditor = false
+                    Toast.makeText(context, "Rules saved successfully!", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(context, "Invalid rules format. Check package=pattern", Toast.LENGTH_LONG).show()
+                }
+            },
+            onOpenListenerSettings = onOpenNotificationListenerSettings
         )
 
         Spacer(modifier = Modifier.height(16.dp))
 
         // ==========================================
-        // 4. WHY EXTEND UNLOCK IS HIT-OR-MISS (THE GOATED FIX)
+        // 4. HARDWARE & PERMISSION MATRIX
+        // ==========================================
+        PermissionMatrixSection(
+            hasPhonePerm = hasPhonePerm,
+            isA11yRunning = isA11yRunning,
+            hasOverlayPerm = hasOverlayPerm,
+            hasListenerPerm = hasNotificationListenerPerm,
+            onRequestPhonePerm = onRequestPhonePerm,
+            onOpenAccessibility = onOpenAccessibility,
+            onOpenOverlaySettings = onOpenOverlaySettings,
+            onOpenListenerSettings = onOpenNotificationListenerSettings
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // ==========================================
+        // 5. GOLDEN GATE & DIRECT DTLS WHITEPAPER
+        // ==========================================
+        GoldenGateWhitepaperSection(
+            isExpanded = showGoldenGateWhitepaper,
+            onToggleExpand = { showGoldenGateWhitepaper = !showGoldenGateWhitepaper }
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // ==========================================
+        // 6. WHY EXTEND UNLOCK IS HIT-OR-MISS & THE FIX
         // ==========================================
         ExtendUnlockReliabilitySection(
             isExpanded = showExtendUnlockTroubleshooter,
@@ -244,7 +289,7 @@ fun FitbitDashboardScreen(
         Spacer(modifier = Modifier.height(16.dp))
 
         // ==========================================
-        // 5. INTERACTIVE MULTI-OEM SETUP GUIDES
+        // 7. MULTI-OEM SETUP GUIDES
         // ==========================================
         OemGuideSection(
             activeOem = activeOem,
@@ -254,7 +299,7 @@ fun FitbitDashboardScreen(
         Spacer(modifier = Modifier.height(16.dp))
 
         // ==========================================
-        // 6. "THE CLEAR SHOT" PRIVACY ARCHITECTURE
+        // 8. "THE CLEAR SHOT" PRIVACY ARCHITECTURE
         // ==========================================
         PrivacyArchitectureSection(
             expandedPillar = expandedPillar,
@@ -264,7 +309,7 @@ fun FitbitDashboardScreen(
         Spacer(modifier = Modifier.height(24.dp))
 
         // ==========================================
-        // 7. GOATED DEV CREDITS FOOTER
+        // 9. FOOTER
         // ==========================================
         PortfolioFooter()
     }
@@ -322,7 +367,6 @@ fun HeroRadarCard(isArmed: Boolean) {
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Tech Badge
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(8.dp))
@@ -331,7 +375,7 @@ fun HeroRadarCard(isArmed: Boolean) {
                             .padding(horizontal = 10.dp, vertical = 4.dp)
                     ) {
                         Text(
-                            text = "DTLS 1.2 • ZERO-CLOUD LOOPBACK",
+                            text = "DTLS 1.2 • NOTIFICATION BRIDGE",
                             color = CyberTeal,
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
@@ -339,7 +383,6 @@ fun HeroRadarCard(isArmed: Boolean) {
                         )
                     }
 
-                    // Live Stat Pill
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
@@ -366,12 +409,10 @@ fun HeroRadarCard(isArmed: Boolean) {
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    // Radar Pulsing Icon Box
                     Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier.size(54.dp)
                     ) {
-                        // Expanding Ring 1
                         if (isArmed) {
                             Box(
                                 modifier = Modifier
@@ -382,7 +423,6 @@ fun HeroRadarCard(isArmed: Boolean) {
                             )
                         }
 
-                        // Core Badge
                         Box(
                             contentAlignment = Alignment.Center,
                             modifier = Modifier
@@ -403,14 +443,14 @@ fun HeroRadarCard(isArmed: Boolean) {
 
                     Column {
                         Text(
-                            text = "Fitbit Air Haptics Relay",
+                            text = "Fitbit Air Notification Bridge",
                             color = TextWhite,
                             fontSize = 20.sp,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = if (isArmed) "Listening for incoming calls • Continuous wrist pulse active"
-                            else "Action required: Complete hardware permissions below",
+                            text = if (isArmed) "Active for Calls & App Notifications • Multi-pattern haptics"
+                            else "Action required: Complete permissions below",
                             color = TextMuted,
                             fontSize = 12.sp,
                             lineHeight = 16.sp
@@ -420,14 +460,13 @@ fun HeroRadarCard(isArmed: Boolean) {
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Metric Badges Row
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     MetricPill(label = "Trigger Latency", value = "~570ms", icon = Icons.Rounded.Speed)
-                    MetricPill(label = "BLE Transport", value = "DTLS Bond", icon = Icons.Rounded.Bluetooth)
-                    MetricPill(label = "Exfiltration Risk", value = "0.00% (Offline)", icon = Icons.Rounded.Shield)
+                    MetricPill(label = "Haptic Patterns", value = "5 Styles", icon = Icons.Rounded.Layers)
+                    MetricPill(label = "Privacy Guarantee", value = "Zero Internet", icon = Icons.Rounded.Shield)
                 }
             }
         }
@@ -455,10 +494,9 @@ fun MetricPill(label: String, value: String, icon: ImageVector) {
 
 @Composable
 fun DiagnosticActionBench(
-    isArmed: Boolean,
     isSimulatingCall: Boolean,
-    isSinglePulsing: Boolean,
-    onTestSinglePulse: () -> Unit,
+    activeTestingPattern: AirHapticPattern?,
+    onTestPattern: (AirHapticPattern) -> Unit,
     onSimulateCall: () -> Unit,
     onParkFitbit: () -> Unit
 ) {
@@ -475,43 +513,55 @@ fun DiagnosticActionBench(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "DIAGNOSTIC TEST BENCH",
+                    text = "PATTERN BENCH & CALL TEST",
                     color = TextWhite,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 0.5.sp
                 )
-                Text(text = "LIVE CONTROLS", color = CyberTeal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Text(text = "HAPTIC PREVIEW", color = CyberTeal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
             }
 
             Text(
-                text = "Simulate hardware call rings and verify wrist band motor response on demand.",
+                text = "Preview verified haptic patterns (single, double, urgent) directly on your wrist band.",
                 color = TextMuted,
                 fontSize = 12.sp,
-                modifier = Modifier.padding(top = 2.dp, bottom = 14.dp)
+                modifier = Modifier.padding(top = 2.dp, bottom = 12.dp)
             )
+
+            // Pattern Quick Test Chips
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                items(listOf(AirHapticPattern.SINGLE, AirHapticPattern.DOUBLE, AirHapticPattern.TRIPLE, AirHapticPattern.LONG_GAP, AirHapticPattern.URGENT)) { pattern ->
+                    val isTesting = activeTestingPattern == pattern
+                    Button(
+                        onClick = { onTestPattern(pattern) },
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isTesting) CyberTeal else SurfaceCardElevated,
+                            contentColor = if (isTesting) DarkBg else TextWhite
+                        ),
+                        border = BorderStroke(1.dp, if (isTesting) CyberTeal else SurfaceCardStroke),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                        modifier = Modifier.height(34.dp)
+                    ) {
+                        Text(
+                            text = if (isTesting) "Buzzing..." else pattern.wireName,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Single Pulse
-                Button(
-                    onClick = onTestSinglePulse,
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isSinglePulsing) CyberTeal else SurfaceCardElevated,
-                        contentColor = if (isSinglePulsing) DarkBg else TextWhite
-                    ),
-                    border = BorderStroke(1.dp, CyberTeal.copy(alpha = 0.5f))
-                ) {
-                    Icon(imageVector = Icons.Rounded.FlashOn, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(text = "Single Buzz", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                }
-
-                // Simulate Call
                 Button(
                     onClick = onSimulateCall,
                     modifier = Modifier.weight(1f),
@@ -524,39 +574,234 @@ fun DiagnosticActionBench(
                     Icon(imageVector = Icons.Rounded.Phone, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = if (isSimulatingCall) "Ringing (5s)..." else "Simulate Call",
+                        text = if (isSimulatingCall) "Ringing (5s)..." else "Simulate Call (5s)",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
-            }
 
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Focus & Park
-            OutlinedButton(
-                onClick = onParkFitbit,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = ElectricBlue),
-                border = BorderStroke(1.dp, ElectricBlue.copy(alpha = 0.4f))
-            ) {
-                Icon(imageVector = Icons.Rounded.Layers, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(text = "🎯 Calibrate & Pre-Park Google Health (~570ms response)", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                OutlinedButton(
+                    onClick = onParkFitbit,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = ElectricBlue),
+                    border = BorderStroke(1.dp, ElectricBlue.copy(alpha = 0.4f))
+                ) {
+                    Icon(imageVector = Icons.Rounded.Layers, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(text = "🎯 Pre-Park Screen", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                }
             }
         }
     }
 }
+
+// =========================================================================
+// 3. NOTIFICATION LISTENER RULES SECTION (paceaitian model)
+// =========================================================================
+
+@Composable
+fun NotificationRulesSection(
+    hasListenerPerm: Boolean,
+    rules: List<AirNotificationRule>,
+    rawText: String,
+    isEditing: Boolean,
+    onToggleEditing: () -> Unit,
+    onTextChange: (String) -> Unit,
+    onSave: () -> Unit,
+    onOpenListenerSettings: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = SurfaceCard),
+        border = BorderStroke(1.dp, if (hasListenerPerm) SurfaceCardStroke else WarningAmber.copy(alpha = 0.5f))
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "APP NOTIFICATION ROUTING RULES",
+                    color = TextWhite,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.5.sp
+                )
+                Text(
+                    text = if (isEditing) "EDITING" else "${rules.size} ACTIVE",
+                    color = if (hasListenerPerm) NeonEmerald else WarningAmber,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            Text(
+                text = "Assign distinct vibration rhythms (single, double, urgent) per application",
+                color = TextMuted,
+                fontSize = 12.sp,
+                modifier = Modifier.padding(top = 2.dp, bottom = 12.dp)
+            )
+
+            // Permission callout if NotificationListener is not granted
+            if (!hasListenerPerm) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(AmberBg.copy(alpha = 0.6f))
+                        .border(1.dp, WarningAmber.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
+                        .padding(12.dp)
+                ) {
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(imageVector = Icons.Rounded.Warning, contentDescription = null, tint = WarningAmber, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(text = "Notification Access Required", color = AmberText, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Text(
+                            text = "Grant Notification Access so the app can intercept alerts from WhatsApp, Calls, and Telegram.",
+                            color = TextMuted,
+                            fontSize = 11.sp,
+                            modifier = Modifier.padding(vertical = 6.dp)
+                        )
+                        Button(
+                            onClick = onOpenListenerSettings,
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = WarningAmber, contentColor = DarkBg),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(text = "Grant Notification Access in Settings ↗", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+
+            // Rules List or Editor
+            if (!isEditing) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    rules.forEach { rule ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(SurfaceCardElevated)
+                                .border(1.dp, SurfaceCardStroke, RoundedCornerShape(10.dp))
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = if (rule.pattern == AirHapticPattern.URGENT) Icons.Rounded.Phone else Icons.Rounded.Notifications,
+                                    contentDescription = null,
+                                    tint = if (rule.pattern == AirHapticPattern.URGENT) FlameOrange else ElectricBlue,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = rule.packageName,
+                                    color = TextWhite,
+                                    fontSize = 12.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(DarkBg)
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Text(
+                                    text = rule.pattern.wireName,
+                                    color = CyberTeal,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                OutlinedButton(
+                    onClick = onToggleEditing,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, SurfaceCardStroke),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = TextWhite)
+                ) {
+                    Icon(imageVector = Icons.Rounded.Edit, contentDescription = null, modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(text = "Configure / Add App Rules (package=pattern)", fontSize = 11.sp)
+                }
+            } else {
+                OutlinedTextField(
+                    value = rawText,
+                    onValueChange = onTextChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    textStyle = androidx.compose.ui.text.TextStyle(
+                        color = TextWhite,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 12.sp
+                    ),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = DarkBg,
+                        unfocusedContainerColor = DarkBg,
+                        focusedBorderColor = CyberTeal,
+                        unfocusedBorderColor = SurfaceCardStroke
+                    )
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = onSave,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryTeal, contentColor = TextWhite)
+                    ) {
+                        Text(text = "Save Rules", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    OutlinedButton(
+                        onClick = onToggleEditing,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, SurfaceCardStroke),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = TextMuted)
+                    ) {
+                        Text(text = "Cancel", fontSize = 11.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+// =========================================================================
+// 4. HARDWARE & PERMISSION MATRIX
+// =========================================================================
 
 @Composable
 fun PermissionMatrixSection(
     hasPhonePerm: Boolean,
     isA11yRunning: Boolean,
     hasOverlayPerm: Boolean,
+    hasListenerPerm: Boolean,
     onRequestPhonePerm: () -> Unit,
     onOpenAccessibility: () -> Unit,
-    onOpenOverlaySettings: () -> Unit
+    onOpenOverlaySettings: () -> Unit,
+    onOpenListenerSettings: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -566,20 +811,29 @@ fun PermissionMatrixSection(
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
-                text = "HARDWARE & AUTOMATION MATRIX",
+                text = "SYSTEM & PERMISSION MATRIX",
                 color = TextWhite,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 0.5.sp
             )
             Text(
-                text = "Local OS subsystems required to observe calls and drive haptics",
+                text = "Local OS subsystems required to observe calls, notifications, and drive haptics",
                 color = TextMuted,
                 fontSize = 12.sp,
                 modifier = Modifier.padding(top = 2.dp, bottom = 14.dp)
             )
 
-            // 1. Phone State Observer
+            MatrixItem(
+                title = "Notification Listener",
+                desc = "Captures alerts from WhatsApp, Calls, and Telegram",
+                isGranted = hasListenerPerm,
+                actionLabel = "Grant",
+                onAction = onOpenListenerSettings
+            )
+
+            HorizontalDivider(color = SurfaceCardStroke, thickness = 1.dp, modifier = Modifier.padding(vertical = 10.dp))
+
             MatrixItem(
                 title = "Phone State Observer",
                 desc = "Listens to hardware ring events (zero audio access)",
@@ -588,9 +842,8 @@ fun PermissionMatrixSection(
                 onAction = onRequestPhonePerm
             )
 
-            Divider(color = SurfaceCardStroke, thickness = 1.dp, modifier = Modifier.padding(vertical = 10.dp))
+            HorizontalDivider(color = SurfaceCardStroke, thickness = 1.dp, modifier = Modifier.padding(vertical = 10.dp))
 
-            // 2. Accessibility Daemon
             MatrixItem(
                 title = "Accessibility Haptic Daemon",
                 desc = "Surgically scoped to toggle Fitbit vibration preview",
@@ -599,9 +852,8 @@ fun PermissionMatrixSection(
                 onAction = onOpenAccessibility
             )
 
-            Divider(color = SurfaceCardStroke, thickness = 1.dp, modifier = Modifier.padding(vertical = 10.dp))
+            HorizontalDivider(color = SurfaceCardStroke, thickness = 1.dp, modifier = Modifier.padding(vertical = 10.dp))
 
-            // 3. Floating HUD Overlay
             MatrixItem(
                 title = "Floating Call HUD",
                 desc = "Displays subtle glass pill HUD during incoming calls",
@@ -660,7 +912,102 @@ fun MatrixItem(
 }
 
 // =========================================================================
-// 4. WHY EXTEND UNLOCK IS HIT OR MISS & THE 3 BULLETPROOF STEPS
+// 5. GOLDEN GATE PROTOCOL WHITEPAPER (paceaitian research)
+// =========================================================================
+
+@Composable
+fun GoldenGateWhitepaperSection(
+    isExpanded: Boolean,
+    onToggleExpand: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = SurfaceCard),
+        border = BorderStroke(1.dp, CyberTeal.copy(alpha = 0.35f))
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onToggleExpand() },
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(DarkBg),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(imageVector = Icons.Rounded.Code, contentDescription = null, tint = CyberTeal, modifier = Modifier.size(18.dp))
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "Fitbit Air Golden Gate Protocol",
+                            color = TextWhite,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Clean-room DTLS / CoAP reverse-engineering analysis",
+                            color = CyberTeal,
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+                Icon(
+                    imageVector = if (isExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                    contentDescription = null,
+                    tint = TextMuted
+                )
+            }
+
+            AnimatedVisibility(visible = isExpanded) {
+                Column(modifier = Modifier.padding(top = 14.dp)) {
+                    Text(
+                        text = "Based on research from paceaitian/fitbit-air-notification-bridge and the Apache-2.0 Golden Gate stack:",
+                        color = TextMuted,
+                        fontSize = 12.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(DarkBg)
+                            .padding(10.dp)
+                    ) {
+                        Text(
+                            text = "Transport:\n  Android -> BLE GATT -> Golden Gate Gattlink -> BOOTSTRAP DTLS 1.2 -> CoAP -> Fitbit Air\n\nHaptic Toggle Primitive:\n  1. PUT /settings (Request Haptics)\n  2. POST /settings (0x0A040A020803 -> Alternate intensity, buzzes)\n  3. Wait 800ms (paceaitian delay)\n  4. POST /settings (Original intensity, restores setting)",
+                            color = ElectricBlue,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 10.sp,
+                            lineHeight = 15.sp
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Text(
+                        text = "⚠️ The Single-Owner Constraint:\nFitbit Air accepts only one active Gattlink/DTLS connection at a time. If a background app holds a persistent Golden Gate connection, Google Health cannot sync steps or alarms, and vice versa. Our app leverages the local loopback to avoid competing with Google Health while giving you instant haptic alerts.",
+                        color = AmberText,
+                        fontSize = 11.sp,
+                        lineHeight = 16.sp
+                    )
+                }
+            }
+        }
+    }
+}
+
+// =========================================================================
+// 6. WHY EXTEND UNLOCK IS HIT OR MISS & THE 3 BULLETPROOF STEPS
 // =========================================================================
 
 @Composable
@@ -719,7 +1066,7 @@ fun ExtendUnlockReliabilitySection(
             AnimatedVisibility(visible = isExpanded) {
                 Column(modifier = Modifier.padding(top = 14.dp)) {
                     Text(
-                        text = "Why does Extend Unlock feel 'hit-or-miss'? Google Play Services imposes a 4-hour timeout and drops Bluetooth polling when OEM aggressive battery killers put Bluetooth to sleep. Here is how we make it 100% bulletproof:",
+                        text = "Why does Extend Unlock feel 'hit-or-miss'? Google Play Services imposes a 4-hour timeout and drops Bluetooth polling when OEM battery killers put Bluetooth to sleep. Here is how we make it 100% bulletproof:",
                         color = TextMuted,
                         fontSize = 12.sp,
                         lineHeight = 17.sp
@@ -811,7 +1158,7 @@ fun ReliabilityStep(num: String, title: String, desc: String) {
 }
 
 // =========================================================================
-// 5. OEM SETUP GUIDES WITH FLUID TABS
+// 7. OEM SETUP GUIDES WITH FLUID TABS
 // =========================================================================
 
 @Composable
@@ -842,7 +1189,6 @@ fun OemGuideSection(
                 modifier = Modifier.padding(top = 2.dp, bottom = 12.dp)
             )
 
-            // Horizontal Brand Selector
             LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxWidth()
@@ -869,7 +1215,6 @@ fun OemGuideSection(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Dynamic Guide Card
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -895,7 +1240,6 @@ fun OemGuideSection(
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    // Path Pill
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -914,7 +1258,6 @@ fun OemGuideSection(
 
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    // Steps
                     activeOem.steps.forEachIndexed { idx, step ->
                         Row(modifier = Modifier.padding(vertical = 3.dp)) {
                             Text(text = "${idx + 1}. ", color = CyberTeal, fontSize = 12.sp, fontWeight = FontWeight.Bold)
@@ -924,7 +1267,6 @@ fun OemGuideSection(
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    // Pro tip
                     Text(
                         text = "💡 ${activeOem.proTip}",
                         color = AmberText,
@@ -955,7 +1297,7 @@ fun OemGuideSection(
 }
 
 // =========================================================================
-// 6. "THE CLEAR SHOT" PRIVACY ARCHITECTURE PILLARS
+// 8. "THE CLEAR SHOT" PRIVACY ARCHITECTURE PILLARS
 // =========================================================================
 
 @Composable
@@ -1007,7 +1349,7 @@ fun PrivacyArchitectureSection(
                 emoji = "🔇",
                 title = "Zero Audio & Wiretapping Access",
                 subtitle = "Subscribes solely to hardware ring state",
-                details = "The bridge only inspects TelephonyManager.EXTRA_STATE_RINGING. It has no microphone permission (RECORD_AUDIO), no telecom dialer bindings, and cannot listen to or record phone conversations.",
+                details = "The bridge only inspects TelephonyManager.EXTRA_STATE_RINGING and Notification title/category. It has no microphone permission (RECORD_AUDIO), no telecom dialer bindings, and cannot listen to or record phone conversations.",
                 isExpanded = expandedPillar == 2,
                 onToggle = { onTogglePillar(2) }
             )
@@ -1016,8 +1358,8 @@ fun PrivacyArchitectureSection(
                 id = 3,
                 emoji = "👤",
                 title = "Ephemeral Volatile RAM Only",
-                subtitle = "Zero contacts saved to disk, SQLite, or cloud",
-                details = "Incoming caller IDs are held strictly in temporary RAM to draw the floating HUD pill. The millisecond the call ends, the memory reference is destroyed. No database, logs, or persistent storage exist.",
+                subtitle = "Zero contacts or message bodies saved to disk",
+                details = "Incoming caller IDs and notification titles are held strictly in temporary RAM to draw the floating HUD pill and perform 1.5s deduplication. No database, SQLite, logs, or persistent storage exist.",
                 isExpanded = expandedPillar == 3,
                 onToggle = { onTogglePillar(3) }
             )
@@ -1096,13 +1438,13 @@ fun PortfolioFooter() {
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
-            text = "Fitbit Air Haptics Relay • Senior Systems Portfolio",
+            text = "Fitbit Air Notification Bridge • Senior Systems Portfolio",
             color = TextDim,
             fontSize = 11.sp,
             fontWeight = FontWeight.Bold
         )
         Text(
-            text = "Engineered with Jetpack Compose, Material 3 & Coroutines",
+            text = "Engineered with Jetpack Compose, Material 3 & Golden Gate Protocol",
             color = TextDim.copy(alpha = 0.7f),
             fontSize = 10.sp,
             modifier = Modifier.padding(top = 2.dp)
