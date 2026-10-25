@@ -149,9 +149,7 @@ class FitbitVibeAccessibilityService : AccessibilityService() {
         val pkg = event?.packageName?.toString()
         if (!pkg.isNullOrEmpty() &&
             pkg != "com.fitbit.FitbitMobile" &&
-            pkg != "com.vibebridge.fitbit" &&
-            !pkg.contains("systemui") &&
-            !pkg.contains("launcher")
+            !pkg.contains("systemui")
         ) {
             lastForegroundPackage = pkg
         }
@@ -399,10 +397,7 @@ class FitbitVibeAccessibilityService : AccessibilityService() {
     fun restoreForeground(context: Context) {
         try {
             val prevPkg = lastForegroundPackage
-            if (!prevPkg.isNullOrEmpty() &&
-                prevPkg != "com.fitbit.FitbitMobile" &&
-                prevPkg != context.packageName
-            ) {
+            if (!prevPkg.isNullOrEmpty() && prevPkg != "com.fitbit.FitbitMobile") {
                 val launchIntent = context.packageManager.getLaunchIntentForPackage(prevPkg)
                 if (launchIntent != null) {
                     launchIntent.addFlags(
@@ -411,20 +406,20 @@ class FitbitVibeAccessibilityService : AccessibilityService() {
                         Intent.FLAG_ACTIVITY_NO_ANIMATION
                     )
                     context.startActivity(launchIntent)
-                    Log.i(TAG, "Restored active app: $prevPkg without popping Fitbit vibration screen.")
+                    Log.i(TAG, "Restored active app: $prevPkg.")
                     return
                 }
             }
 
-            // Fallback to Home screen
-            val homeIntent = Intent(Intent.ACTION_MAIN).apply {
-                addCategory(Intent.CATEGORY_HOME)
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION
+            // Fallback: Accessibility Global Action BACK or HOME cleanly dismisses Fitbit on Android 14
+            Log.i(TAG, "Dismissing Fitbit via Accessibility Global Action BACK/HOME")
+            val backSuccess = performGlobalAction(GLOBAL_ACTION_BACK)
+            if (!backSuccess) {
+                performGlobalAction(GLOBAL_ACTION_HOME)
             }
-            context.startActivity(homeIntent)
-            Log.i(TAG, "Restored Home screen without popping Fitbit vibration screen.")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to restore previous app: ${e.message}")
+            performGlobalAction(GLOBAL_ACTION_BACK)
         }
     }
 
