@@ -13,6 +13,10 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
+
+        ndk {
+            abiFilters.add("arm64-v8a")
+        }
     }
 
     buildTypes {
@@ -34,9 +38,17 @@ android {
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.10"
     }
+    packaging {
+        jniLibs {
+            pickFirsts.add("**/libgg.so")
+            pickFirsts.add("**/libxp.so")
+        }
+    }
 }
 
 dependencies {
+    implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.jar", "*.aar"))))
+
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("com.google.android.material:material:1.11.0")
@@ -51,4 +63,11 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.compose.animation:animation")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
+
+    // Golden Gate & BitGatt Dependencies
+    implementation("com.github.fitbit:bitgatt:v0.9.11")
+    implementation("io.reactivex.rxjava2:rxjava:2.2.12")
+    implementation("io.reactivex.rxjava2:rxandroid:2.1.1")
+    implementation("com.jakewharton.timber:timber:4.7.1")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 }
