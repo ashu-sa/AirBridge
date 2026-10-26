@@ -1,7 +1,7 @@
-# Fitbit VibeBridge ⚡
+# Air Bridge ⚡
 
 <p align="center">
-  <img src="app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml" width="96" height="96" alt="Fitbit VibeBridge Logo" />
+  <img src="app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml" width="96" height="96" alt="Air Bridge Logo" />
 </p>
 
 <p align="center">
@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ashu-sa/FitbitVibeBridge/releases/latest">
+  <a href="https://github.com/ashu-sa/AirBridge/releases/latest">
     <img src="https://img.shields.io/badge/Download-APK%20(v1.0.0)-00E5FF?style=for-the-badge&logo=android" alt="Download APK" />
   </a>
   <img src="https://img.shields.io/badge/Platform-Android%208.0%2B-3DDC84?style=for-the-badge&logo=android" alt="Platform Android 8.0+" />
@@ -78,9 +78,9 @@
 ## 📥 Download & Installation
 
 ### Option 1: Direct APK Download
-1. Download the latest **`app-debug.apk`** from [GitHub Releases](https://github.com/ashu-sa/FitbitVibeBridge/releases/latest).
+1. Download the latest **`AirBridge-v1.0.0.apk`** from [GitHub Releases](https://github.com/ashu-sa/AirBridge/releases/latest).
 2. On your Android phone, tap the downloaded file and select **Install** *(allow "Install from Unknown Sources" if prompted)*.
-3. Open **Fitbit VibeBridge** and grant the 3 essential permissions:
+3. Open **Air Bridge** and grant the 3 essential permissions:
    - **Bluetooth**: To connect to your Fitbit band.
    - **Phone**: To detect incoming call ringing states.
    - **Notification Listener**: To detect alerts from your selected priority apps.
@@ -90,8 +90,8 @@
 Ensure you have the Android SDK (API 34) and JDK 17 installed:
 
 ```bash
-git clone https://github.com/ashu-sa/FitbitVibeBridge.git
-cd FitbitVibeBridge
+git clone https://github.com/ashu-sa/AirBridge.git
+cd AirBridge
 ./gradlew assembleDebug
 
 # Install directly to your connected Android phone via ADB:

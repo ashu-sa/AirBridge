@@ -548,7 +548,7 @@ class AirBridgeOneShotService : Service() {
 
     private fun buildNotification(status: String) = NotificationCompat.Builder(this, CHANNEL_ID)
         .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
-        .setContentTitle("Fitbit Vibe Bridge (Pure BLE)")
+        .setContentTitle("Air Bridge (Pure BLE)")
         .setContentText(status)
         .setStyle(NotificationCompat.BigTextStyle().bigText(status))
         .setOngoing(true)
@@ -569,7 +569,7 @@ class AirBridgeOneShotService : Service() {
             manager.createNotificationChannel(
                 NotificationChannel(
                     CHANNEL_ID,
-                    "Fitbit Air Pure BLE Bridge",
+                    "Air Bridge BLE Service",
                     NotificationManager.IMPORTANCE_LOW
                 )
             )
