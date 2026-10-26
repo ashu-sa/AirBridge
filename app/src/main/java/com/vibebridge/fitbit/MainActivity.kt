@@ -304,7 +304,7 @@ class MainActivity : ComponentActivity() {
             false
         }
 
-        pairedAddress = AirBridgeDeviceSettings.loadAddress(this) ?: AirBridgeDeviceSettings.DEFAULT_FALLBACK_ADDRESS
+        pairedAddress = AirBridgeDeviceSettings.loadAddress(this).orEmpty()
         pairedName = AirBridgeDeviceSettings.loadDeviceName(this)
         lastStatusText = AirBridgeDeviceSettings.loadLastStatus(this)
         isCallAlertEnabled = AirBridgeDeviceSettings.isCallAlertEnabled(this)

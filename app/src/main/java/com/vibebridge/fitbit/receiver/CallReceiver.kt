@@ -26,11 +26,8 @@ class CallReceiver : BroadcastReceiver() {
         if (action == ACTION_TEST_CALL) {
             val pattern = AirBridgeDeviceSettings.loadCallPattern(context)
             Timber.i("Test call intent received; enqueuing BLE alert: %s", pattern.displayName)
-            val incomingNumber = intent.getStringExtra("incoming_number")
-                ?: intent.getStringExtra(TelephonyManager.EXTRA_INCOMING_NUMBER)
-                ?: "+91 79786 16226"
             val trigger = AirNotificationTrigger(
-                sourcePackage = "Test Call ($incomingNumber)",
+                sourcePackage = "Manual Call Test",
                 pattern = pattern,
                 isCall = true,
                 isContinuousCall = false
@@ -65,10 +62,7 @@ class CallReceiver : BroadcastReceiver() {
                     return
                 }
 
-                @Suppress("DEPRECATION")
-                val incomingNumber = intent.getStringExtra(TelephonyManager.EXTRA_INCOMING_NUMBER)
-                val callSource = if (!incomingNumber.isNullOrBlank()) "Call ($incomingNumber)" else "Incoming Call"
-
+                val callSource = "Incoming Call"
                 val pattern = AirBridgeDeviceSettings.loadCallPattern(context)
                 Timber.i("Incoming call detected! Enqueuing BLE alert with pattern: %s", pattern.displayName)
 

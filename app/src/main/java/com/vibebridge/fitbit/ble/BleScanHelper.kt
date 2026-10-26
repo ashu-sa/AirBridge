@@ -57,8 +57,7 @@ class BleScanner(private val context: Context) {
                 val rawName = dev.name ?: result.scanRecord?.deviceName
                 val name = if (!rawName.isNullOrBlank()) rawName else "BLE Device"
                 val isFitbit = name.contains("Fitbit", ignoreCase = true) ||
-                        name.contains("Air", ignoreCase = true) ||
-                        address.equals(AirBridgeDeviceSettings.DEFAULT_FALLBACK_ADDRESS, ignoreCase = true)
+                        name.contains("Air", ignoreCase = true)
 
                 val item = DiscoveredBleDevice(
                     name = name,

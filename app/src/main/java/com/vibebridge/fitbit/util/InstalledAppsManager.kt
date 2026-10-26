@@ -8,8 +8,7 @@ import timber.log.Timber
 
 data class DeviceApp(
     val packageName: String,
-    val appName: String,
-    val icon: Drawable? = null
+    val appName: String
 )
 
 object InstalledAppsManager {
@@ -34,8 +33,7 @@ object InstalledAppsManager {
                 if (pkg == context.packageName) continue
                 if (seen.add(pkg)) {
                     val label = runCatching { info.loadLabel(pm).toString() }.getOrNull() ?: pkg
-                    val icon = runCatching { info.loadIcon(pm) }.getOrNull()
-                    apps.add(DeviceApp(pkg, label, icon))
+                    apps.add(DeviceApp(pkg, label))
                 }
             }
 
@@ -53,8 +51,7 @@ object InstalledAppsManager {
                     runCatching {
                         val appInfo = pm.getApplicationInfo(pkg, 0)
                         val label = pm.getApplicationLabel(appInfo).toString()
-                        val icon = pm.getApplicationIcon(appInfo)
-                        apps.add(DeviceApp(pkg, label, icon))
+                        apps.add(DeviceApp(pkg, label))
                     }
                 }
             }

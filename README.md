@@ -131,9 +131,10 @@ If Bluetooth drops or your band was out of range, tap **`[ ↺ Reset ]`** or **`
 
 ## 🔒 Security & Privacy
 
-* **Zero Internet Permissions**: The app does not request `android.permission.INTERNET`. All data processing is strictly on-device.
-* **No Cloud / No Analytics**: No tracking, telemetry, or remote telemetry servers.
-* **Open Source**: Complete transparency under the Apache 2.0 License.
+* **100% Offline & Private**: The app performs zero external telemetry, cloud sync, or remote tracking. All notification and call processing occurs strictly on your device.
+* **Local Loopback BLE Stack**: The `INTERNET` permission in the manifest is utilized exclusively to bind internal GoldenGate DTLS 1.2 / CoAP network sockets to local loopback (`10.127.0.1` / `127.0.0.1`) for the Bluetooth Gattlink bridge. No outbound internet traffic is ever generated.
+* **Zero Accessibility & Zero Screen Capture**: No Accessibility Service, overlay draw, or screen scraping required. 100% compatible with Android UPI and banking security guidelines.
+* **Open Source**: Full transparency under the Apache 2.0 License.
 
 ---
 

@@ -385,14 +385,15 @@ class AirBridgeOneShotService : Service() {
                 emitter.onError(IllegalStateException("BLE scanner unavailable"))
                 return@create
             }
-        lateinit var callback: ScanCallback
+        var callback: ScanCallback? = null
+        var timeout: Runnable? = null
         val stopScan = {
-            mainHandler.removeCallbacksAndMessages(callback)
-            runCatching { scanner.stopScan(callback) }
+            timeout?.let { mainHandler.removeCallbacks(it) }
+            callback?.let { runCatching { scanner.stopScan(it) } }
         }
         var nearbyFitbitCandidate: ScanResult? = null
 
-        callback = object : ScanCallback() {
+        val activeCallback = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult) {
                 val dev = result.device ?: return
                 val devAddress = dev.address ?: return
@@ -416,8 +417,9 @@ class AirBridgeOneShotService : Service() {
                 if (!emitter.isDisposed) emitter.onError(IllegalStateException("BLE scan failed: code $errorCode"))
             }
         }
+        callback = activeCallback
 
-        val timeout = Runnable {
+        val activeTimeout = Runnable {
             stopScan()
             val candidate = nearbyFitbitCandidate
             if (candidate != null) {
@@ -448,9 +450,9 @@ class AirBridgeOneShotService : Service() {
                 }
             }
         }
+        timeout = activeTimeout
 
         emitter.setCancellable {
-            mainHandler.removeCallbacks(timeout)
             stopScan()
         }
 
@@ -458,8 +460,8 @@ class AirBridgeOneShotService : Service() {
             val settings = ScanSettings.Builder()
                 .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
                 .build()
-            scanner.startScan(null, settings, callback)
-            mainHandler.postDelayed(timeout, SCAN_TIMEOUT_MILLIS)
+            scanner.startScan(null, settings, activeCallback)
+            mainHandler.postDelayed(activeTimeout, SCAN_TIMEOUT_MILLIS)
         } catch (throwable: Throwable) {
             stopScan()
             if (!emitter.isDisposed) emitter.onError(throwable)

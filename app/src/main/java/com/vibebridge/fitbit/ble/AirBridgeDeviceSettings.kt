@@ -13,9 +13,6 @@ object AirBridgeDeviceSettings {
     private const val KEY_CALL_PATTERN = "call_pattern"
     private const val KEY_NOTIFICATION_ALERTS_ENABLED = "notification_alerts_enabled"
 
-    const val DEFAULT_FALLBACK_ADDRESS = "5E:75:11:59:E2:43"
-    const val DEFAULT_FALLBACK_NAME = "Google Fitbit Air"
-
     fun saveDevice(context: Context, device: BluetoothDevice) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
@@ -33,15 +30,14 @@ object AirBridgeDeviceSettings {
     }
 
     fun loadAddress(context: Context): String? {
-        val saved = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .getString(KEY_ADDRESS, null)
             ?.takeIf(String::isNotBlank)
-        return saved ?: DEFAULT_FALLBACK_ADDRESS
     }
 
     fun loadDeviceName(context: Context): String {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        return prefs.getString(KEY_NAME, DEFAULT_FALLBACK_NAME) ?: DEFAULT_FALLBACK_NAME
+        return prefs.getString(KEY_NAME, "Google Fitbit Air") ?: "Google Fitbit Air"
     }
 
     fun loadDeviceLabel(context: Context): String {

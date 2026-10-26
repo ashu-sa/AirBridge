@@ -16,7 +16,6 @@
 
     <!-- Telephony Call State Permissions -->
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
-    <uses-permission android:name="android.permission.READ_CALL_LOG" />
 
     <!-- Background Execution & Notification Permissions -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
