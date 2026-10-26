@@ -25,6 +25,9 @@ val ElectricBlue = Color(0xFF38BDF8)
 val BlueBg = Color(0xFF0C4A6E)
 val BlueText = Color(0xFFBAE6FD)
 
+val CrimsonRed = Color(0xFFEF4444)
+val CrimsonBg = Color(0xFF7F1D1D)
+
 // Text Colors
 val TextWhite = Color(0xFFFFFFFF)
 val TextMuted = Color(0xFF94A3B8)

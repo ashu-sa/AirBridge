@@ -11,6 +11,7 @@ object AirBridgeDeviceSettings {
     private const val KEY_LAST_STATUS = "last_status"
     private const val KEY_CALL_ALERTS_ENABLED = "call_alerts_enabled"
     private const val KEY_CALL_PATTERN = "call_pattern"
+    private const val KEY_NOTIFICATION_ALERTS_ENABLED = "notification_alerts_enabled"
 
     const val DEFAULT_FALLBACK_ADDRESS = "5E:75:11:59:E2:43"
     const val DEFAULT_FALLBACK_NAME = "Google Fitbit Air"
@@ -82,6 +83,30 @@ object AirBridgeDeviceSettings {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .putString(KEY_CALL_PATTERN, pattern.wireName)
+            .apply()
+    }
+
+    fun isNotificationAlertsEnabled(context: Context): Boolean = context
+        .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        .getBoolean(KEY_NOTIFICATION_ALERTS_ENABLED, true)
+
+    fun setNotificationAlertsEnabled(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_NOTIFICATION_ALERTS_ENABLED, enabled)
+            .apply()
+    }
+
+    private const val KEY_ONBOARDING_COMPLETED = "onboarding_completed"
+
+    fun isOnboardingCompleted(context: Context): Boolean = context
+        .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        .getBoolean(KEY_ONBOARDING_COMPLETED, false)
+
+    fun setOnboardingCompleted(context: Context, completed: Boolean) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_ONBOARDING_COMPLETED, completed)
             .apply()
     }
 }

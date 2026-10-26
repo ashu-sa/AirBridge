@@ -1,5 +1,7 @@
 package com.vibebridge.fitbit.ui
 
+import android.content.Context
+import android.graphics.drawable.Drawable
 import android.os.Handler
 import android.os.Looper
 import android.widget.Toast
@@ -16,27 +18,31 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.core.graphics.drawable.toBitmap
 import com.vibebridge.fitbit.AirBridgeNotificationSettings
 import com.vibebridge.fitbit.AirHapticPattern
 import com.vibebridge.fitbit.AirNotificationRule
 import com.vibebridge.fitbit.ble.BleScanner
 import com.vibebridge.fitbit.ble.DiscoveredBleDevice
 import com.vibebridge.fitbit.ui.theme.*
+import com.vibebridge.fitbit.util.DeviceApp
+import com.vibebridge.fitbit.util.InstalledAppsManager
 
 @Composable
 fun FitbitDashboardScreen(
@@ -48,19 +54,30 @@ fun FitbitDashboardScreen(
     pairedDeviceAddress: String,
     lastStatus: String,
     isCallAlertEnabled: Boolean,
+    isNotificationAlertEnabled: Boolean,
+    isTestingVibration: Boolean,
     callPattern: AirHapticPattern,
-    rulesText: String,
+    rules: List<AirNotificationRule>,
     bleScanner: BleScanner,
     onToggleCallAlert: (Boolean) -> Unit,
+    onToggleNotificationAlert: (Boolean) -> Unit,
     onChangeCallPattern: (AirHapticPattern) -> Unit,
+    onToggleAppRule: (Int, Boolean) -> Unit,
+    onChangeAppPattern: (Int, AirHapticPattern) -> Unit,
+    onUpdateAppRule: (Int, String, AirHapticPattern) -> Unit,
+    onResetDefaultRules: () -> Unit,
     onSelectDevice: (String, String) -> Unit,
     onTestCallAlert: () -> Unit,
     onTestPattern: (AirHapticPattern) -> Unit,
-    onSaveRulesText: (String) -> Boolean,
+    onStopVibration: () -> Unit = {},
     onRequestPhonePerm: () -> Unit,
     onRequestBluetoothPerm: () -> Unit,
     onRequestIgnoreBatteryOptimizations: () -> Unit,
-    onOpenNotificationListenerSettings: () -> Unit
+    onOpenNotificationListenerSettings: () -> Unit,
+    onForceSyncHealth: () -> Unit = {},
+    onResetConnection: () -> Unit = {},
+    onAutoDetectBand: () -> Unit = {},
+    onEnableBluetooth: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
@@ -70,115 +87,120 @@ fun FitbitDashboardScreen(
     var manualAddressInput by remember { mutableStateOf(pairedDeviceAddress) }
     var manualNameInput by remember { mutableStateOf(pairedDeviceName) }
 
-    var isTestingCall by remember { mutableStateOf(false) }
+    var slotToEdit by remember { mutableStateOf<Int?>(null) }
+    var slotForPatternSelection by remember { mutableStateOf<Int?>(null) }
+    var activeTestingAppPackage by remember { mutableStateOf<String?>(null) }
     var activeTestingPattern by remember { mutableStateOf<AirHapticPattern?>(null) }
-    var showRuleEditor by remember { mutableStateOf(false) }
-    var editedRulesText by remember(rulesText) { mutableStateOf(rulesText) }
+
+    LaunchedEffect(isTestingVibration) {
+        if (!isTestingVibration) {
+            activeTestingAppPackage = null
+            activeTestingPattern = null
+        }
+    }
 
     val isArmed = hasPhonePerm && hasBluetoothPerm
-
-    val parsedRules = remember(rulesText) {
-        AirBridgeNotificationSettings.loadRules(context)
-    }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(DarkBg)
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 20.dp)
+            .padding(horizontal = 18.dp, vertical = 20.dp)
     ) {
 
         // ==========================================
-        // 1. HERO CARD WITH LIVE RADAR & TARGET BAND
+        // 1. MINIMALIST TOP HEADER & STATUS
         // ==========================================
-        HeroBleRadarCard(
+        ModernHeaderCard(
             isArmed = isArmed,
             deviceName = pairedDeviceName,
             deviceAddress = pairedDeviceAddress,
-            lastStatus = lastStatus,
             onOpenScanner = {
                 showScannerDialog = true
                 bleScanner.startScan()
             },
-            onOpenManualInput = {
+            onResetConnection = onResetConnection,
+            onOpenManual = {
                 manualAddressInput = pairedDeviceAddress
                 manualNameInput = pairedDeviceName
                 showManualAddressDialog = true
             }
         )
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // Coexistence sync status & error recovery banner
+        CoexistenceSyncBanner(
+            lastStatus = lastStatus,
+            onForceSyncHealth = onForceSyncHealth,
+            onResetConnection = onResetConnection,
+            onAutoDetectBand = onAutoDetectBand,
+            onEnableBluetooth = onEnableBluetooth
+        )
+
+        Spacer(modifier = Modifier.height(18.dp))
 
         // ==========================================
-        // 2. INCOMING CALL COMMAND CENTER
+        // 2. INCOMING CALL NOTIFICATIONS
         // ==========================================
-        CallFeatureCard(
-            isCallAlertEnabled = isCallAlertEnabled,
+        ModernCallAlertCard(
+            isEnabled = isCallAlertEnabled,
             selectedPattern = callPattern,
-            isTesting = isTestingCall,
+            isTesting = isTestingVibration && activeTestingAppPackage == null,
             hasPhonePerm = hasPhonePerm,
-            onToggleEnabled = onToggleCallAlert,
+            onToggle = onToggleCallAlert,
             onSelectPattern = onChangeCallPattern,
             onRequestPerm = onRequestPhonePerm,
-            onTestCall = {
+            onToggleTest = {
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                isTestingCall = true
-                onTestCallAlert()
-                Handler(Looper.getMainLooper()).postDelayed({
-                    isTestingCall = false
-                }, 3000)
-            }
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // ==========================================
-        // 3. PATTERN TEST BENCH (QUICK PREVIEW)
-        // ==========================================
-        PatternTestBenchCard(
-            activePattern = activeTestingPattern,
-            onTest = { pattern ->
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                activeTestingPattern = pattern
-                onTestPattern(pattern)
-                val duration = 800L * pattern.groupCount + pattern.betweenGroupDelaysMillis.sum()
-                Handler(Looper.getMainLooper()).postDelayed({
+                if (isTestingVibration) {
+                    activeTestingAppPackage = null
                     activeTestingPattern = null
-                }, duration + 500)
+                    onStopVibration()
+                } else {
+                    activeTestingAppPackage = null
+                    activeTestingPattern = callPattern
+                    onTestCallAlert()
+                }
             }
         )
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(18.dp))
 
         // ==========================================
-        // 4. APP NOTIFICATION ROUTING BENCH
+        // 3. PRIORITY APPS (MAX 5) - ALLOWED ON TOP
         // ==========================================
-        AppRoutingCard(
+        ModernPriorityAppsCard(
+            isEnabled = isNotificationAlertEnabled,
             hasListenerPerm = hasNotificationListenerPerm,
-            rules = parsedRules,
-            rawText = editedRulesText,
-            isEditing = showRuleEditor,
-            onToggleEditing = { showRuleEditor = !showRuleEditor },
-            onTextChange = { editedRulesText = it },
-            onSave = {
-                val ok = onSaveRulesText(editedRulesText)
-                if (ok) {
-                    showRuleEditor = false
-                    Toast.makeText(context, "Routing rules saved!", Toast.LENGTH_SHORT).show()
-                } else {
-                    Toast.makeText(context, "Invalid format. Use package=pattern", Toast.LENGTH_LONG).show()
-                }
+            rules = rules,
+            isTestingVibration = isTestingVibration,
+            activeTestingAppPackage = activeTestingAppPackage,
+            onToggleMaster = onToggleNotificationAlert,
+            onToggleRule = onToggleAppRule,
+            onOpenPattern = { slotIndex -> slotForPatternSelection = slotIndex },
+            onPickApp = { slotIndex -> slotToEdit = slotIndex },
+            onTestAppPattern = { rule ->
+                activeTestingAppPackage = rule.packageName
+                activeTestingPattern = rule.pattern
+                onTestPattern(rule.pattern)
             },
+            onStopVibration = {
+                activeTestingAppPackage = null
+                activeTestingPattern = null
+                onStopVibration()
+            },
+            onResetDefaults = onResetDefaultRules,
             onOpenListenerSettings = onOpenNotificationListenerSettings
         )
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(18.dp))
 
         // ==========================================
-        // 5. HARDWARE & PERMISSION CHECKLIST
+        // 4. BETTER SYSTEM PERMISSIONS & READINESS
         // ==========================================
-        PermissionChecklistCard(
+        ModernPermissionsCard(
             hasPhonePerm = hasPhonePerm,
             hasBluetoothPerm = hasBluetoothPerm,
             hasListenerPerm = hasNotificationListenerPerm,
@@ -189,14 +211,65 @@ fun FitbitDashboardScreen(
             onOpenListenerSettings = onOpenNotificationListenerSettings
         )
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(18.dp))
 
         // ==========================================
-        // 6. ZERO-ACCESSIBILITY ARCHITECTURE BADGE
+        // 5. PRIVACY & HOW IT WORKS (INLINE ACCORDION)
         // ==========================================
-        ZeroAccessibilityArchitectureCard()
+        ModernPrivacyAccordionCard()
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(28.dp))
+    }
+
+    // App Picker Dialog (Lists all installed apps on phone with real icons!)
+    slotToEdit?.let { slotIndex ->
+        val currentRule = rules.getOrNull(slotIndex)
+        AppPickerDialog(
+            slotNumber = slotIndex + 1,
+            currentPackage = currentRule?.packageName.orEmpty(),
+            onDismiss = { slotToEdit = null },
+            onSelectApp = { selectedApp ->
+                val pattern = currentRule?.pattern ?: AirHapticPattern.SINGLE
+                onUpdateAppRule(slotIndex, selectedApp.packageName, pattern)
+                slotToEdit = null
+            }
+        )
+    }
+
+    // Pattern Selection Dialog
+    slotForPatternSelection?.let { slotIndex ->
+        val rule = rules.getOrNull(slotIndex)
+        if (rule != null) {
+            val appName = InstalledAppsManager.getAppName(context, rule.packageName)
+            SelectAppPatternDialog(
+                appName = appName,
+                packageName = rule.packageName,
+                currentPattern = rule.pattern,
+                isTestingVibration = isTestingVibration,
+                activeTestingPattern = activeTestingPattern,
+                onDismiss = {
+                    if (isTestingVibration) {
+                        activeTestingAppPackage = null
+                        activeTestingPattern = null
+                        onStopVibration()
+                    }
+                    slotForPatternSelection = null
+                },
+                onSelect = { pattern ->
+                    onChangeAppPattern(slotIndex, pattern)
+                },
+                onTestPattern = { pattern ->
+                    activeTestingAppPackage = rule.packageName
+                    activeTestingPattern = pattern
+                    onTestPattern(pattern)
+                },
+                onStopVibration = {
+                    activeTestingAppPackage = null
+                    activeTestingPattern = null
+                    onStopVibration()
+                }
+            )
+        }
     }
 
     // BLE Scanner Dialog
@@ -216,7 +289,7 @@ fun FitbitDashboardScreen(
         )
     }
 
-    // Manual MAC Address Dialog
+    // Manual MAC Dialog
     if (showManualAddressDialog) {
         Dialog(onDismissRequest = { showManualAddressDialog = false }) {
             Card(
@@ -298,208 +371,113 @@ fun FitbitDashboardScreen(
 }
 
 // =========================================================================
-// 1. HERO BLE RADAR CARD
+// 1. MODERN HEADER CARD
 // =========================================================================
 
 @Composable
-fun HeroBleRadarCard(
+fun ModernHeaderCard(
     isArmed: Boolean,
     deviceName: String,
     deviceAddress: String,
-    lastStatus: String,
     onOpenScanner: () -> Unit,
-    onOpenManualInput: () -> Unit
+    onResetConnection: () -> Unit = {},
+    onOpenManual: () -> Unit
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "RadarPulse")
-    val pulseScale by infiniteTransition.animateFloat(
-        initialValue = 0.8f,
-        targetValue = 1.35f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(2000, easing = LinearOutSlowInEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "Scale"
-    )
-    val pulseAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.6f,
-        targetValue = 0.0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(2000, easing = LinearOutSlowInEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "Alpha"
-    )
-
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
+        shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(containerColor = SurfaceCard),
-        border = BorderStroke(1.dp, if (isArmed) CyberTeal.copy(alpha = 0.45f) else WarningAmber.copy(alpha = 0.45f))
+        border = BorderStroke(1.dp, if (isArmed) CyberTeal.copy(alpha = 0.35f) else WarningAmber.copy(alpha = 0.35f))
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(
-                    Brush.radialGradient(
-                        colors = listOf(
-                            if (isArmed) CyberTeal.copy(alpha = 0.15f) else WarningAmber.copy(alpha = 0.12f),
-                            Color.Transparent
-                        ),
-                        radius = 650f
-                    )
-                )
-                .padding(20.dp)
-        ) {
-            Column {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(SurfaceCardElevated)
-                            .border(1.dp, SurfaceCardStroke, RoundedCornerShape(8.dp))
-                            .padding(horizontal = 10.dp, vertical = 4.dp)
-                    ) {
-                        Text(
-                            text = "PURE BLE • GATT / DTLS 1.2",
-                            color = CyberTeal,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.sp
-                        )
-                    }
-
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .clip(CircleShape)
-                            .background(if (isArmed) EmeraldBg else AmberBg)
-                            .padding(horizontal = 10.dp, vertical = 4.dp)
-                    ) {
+        Column(modifier = Modifier.padding(18.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
                             modifier = Modifier
-                                .size(7.dp)
+                                .size(8.dp)
                                 .clip(CircleShape)
                                 .background(if (isArmed) NeonEmerald else WarningAmber)
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(modifier = Modifier.width(7.dp))
                         Text(
-                            text = if (isArmed) "ARMED" else "STANDBY",
+                            text = if (isArmed) "CONNECTED • DIRECT BLE" else "STANDBY • CHECK PERMISSIONS",
                             color = if (isArmed) EmeraldText else AmberText,
                             fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.5.sp
                         )
                     }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = deviceName,
+                        color = TextWhite,
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier.size(56.dp)
-                    ) {
-                        if (isArmed) {
-                            Box(
-                                modifier = Modifier
-                                    .size(52.dp)
-                                    .scale(pulseScale)
-                                    .clip(CircleShape)
-                                    .background(NeonEmerald.copy(alpha = pulseAlpha))
-                            )
-                        }
-
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .size(46.dp)
-                                .clip(CircleShape)
-                                .background(if (isArmed) NeonEmerald else WarningAmber)
-                        ) {
-                            Icon(
-                                imageVector = if (isArmed) Icons.Rounded.BluetoothConnected else Icons.Rounded.BluetoothSearching,
-                                contentDescription = null,
-                                tint = DarkBg,
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.width(16.dp))
-
-                    Column {
-                        Text(
-                            text = deviceName,
-                            color = TextWhite,
-                            fontSize = 19.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = deviceAddress,
-                            color = CyberTeal,
-                            fontSize = 13.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                // Real-time status bubble
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(DarkBg.copy(alpha = 0.7f))
-                        .border(1.dp, SurfaceCardStroke, RoundedCornerShape(12.dp))
-                        .padding(horizontal = 12.dp, vertical = 8.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Rounded.Info,
-                            contentDescription = null,
-                            tint = ElectricBlue,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = lastStatus,
-                            color = TextWhite,
-                            fontSize = 11.sp,
-                            maxLines = 2,
-                            lineHeight = 15.sp
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
 
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Button(
-                        onClick = onOpenScanner,
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(10.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryTeal, contentColor = TextWhite)
+                    // Quick Reset Button
+                    Surface(
+                        onClick = onResetConnection,
+                        shape = RoundedCornerShape(12.dp),
+                        color = SurfaceCardElevated,
+                        border = BorderStroke(1.dp, SurfaceCardStroke)
                     ) {
-                        Icon(imageVector = Icons.Rounded.Radar, contentDescription = null, modifier = Modifier.size(15.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(text = "BLE Radar Scan", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.RestartAlt,
+                                contentDescription = "Reset",
+                                tint = CyberTeal,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Reset",
+                                color = CyberTeal,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
                     }
 
-                    OutlinedButton(
-                        onClick = onOpenManualInput,
-                        shape = RoundedCornerShape(10.dp),
-                        border = BorderStroke(1.dp, SurfaceCardStroke),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = TextMuted)
+                    // Bluetooth pill button
+                    Surface(
+                        onClick = onOpenScanner,
+                        shape = RoundedCornerShape(12.dp),
+                        color = SurfaceCardElevated,
+                        border = BorderStroke(1.dp, SurfaceCardStroke)
                     ) {
-                        Icon(imageVector = Icons.Rounded.Edit, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Bluetooth,
+                                contentDescription = null,
+                                tint = CyberTeal,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = deviceAddress.takeLast(8),
+                                color = TextWhite,
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
                     }
                 }
             }
@@ -508,53 +486,243 @@ fun HeroBleRadarCard(
 }
 
 // =========================================================================
-// 2. CALL FEATURE CARD
+// COEXISTENCE SYNC & ERROR RECOVERY BANNER
 // =========================================================================
 
 @Composable
-fun CallFeatureCard(
-    isCallAlertEnabled: Boolean,
+fun CoexistenceSyncBanner(
+    lastStatus: String,
+    onForceSyncHealth: () -> Unit,
+    onResetConnection: () -> Unit = {},
+    onAutoDetectBand: () -> Unit = {},
+    onEnableBluetooth: () -> Unit = {}
+) {
+    val isError = lastStatus.contains("Error", ignoreCase = true) ||
+            lastStatus.contains("timeout", ignoreCase = true) ||
+            lastStatus.contains("disabled", ignoreCase = true) ||
+            lastStatus.contains("glitch", ignoreCase = true) ||
+            lastStatus.contains("interrupted", ignoreCase = true) ||
+            lastStatus.contains("failed", ignoreCase = true)
+    val isBtDisabled = lastStatus.contains("Bluetooth is turned off", ignoreCase = true) ||
+            lastStatus.contains("Bluetooth is disabled", ignoreCase = true)
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        color = if (isError) AmberBg.copy(alpha = 0.25f) else SurfaceCard,
+        border = BorderStroke(1.dp, if (isError) WarningAmber.copy(alpha = 0.5f) else SurfaceCardStroke)
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .background(if (isError) WarningAmber else NeonEmerald, shape = CircleShape)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (isError) "Connection Interrupted" else "Google Health Coexistence",
+                        color = if (isError) AmberText else Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    // Quick Reset pill
+                    Surface(
+                        onClick = onResetConnection,
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (isError) WarningAmber.copy(alpha = 0.2f) else SurfaceCardElevated,
+                        border = BorderStroke(1.dp, if (isError) WarningAmber.copy(alpha = 0.4f) else SurfaceCardStroke)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.RestartAlt,
+                                contentDescription = "Reset",
+                                tint = if (isError) WarningAmber else CyberTeal,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text(
+                                text = "Reset",
+                                color = if (isError) AmberText else CyberTeal,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+
+                    // Sync Health pill
+                    Surface(
+                        onClick = onForceSyncHealth,
+                        shape = RoundedCornerShape(8.dp),
+                        color = CyberTeal.copy(alpha = 0.12f),
+                        border = BorderStroke(1.dp, CyberTeal.copy(alpha = 0.35f))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Sync,
+                                contentDescription = "Sync",
+                                tint = CyberTeal,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Sync Health",
+                                color = CyberTeal,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Text(
+                text = if (lastStatus.isNotBlank()) lastStatus else "Bluetooth releases in ~1.5s after pulses • Step & sleep sync never blocked",
+                color = if (isError) TextWhite else TextMuted,
+                fontSize = 11.sp,
+                lineHeight = 15.sp,
+                maxLines = 3
+            )
+
+            // When error is present, display recovery action buttons
+            if (isError) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (isBtDisabled) {
+                        Button(
+                            onClick = onEnableBluetooth,
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = WarningAmber, contentColor = DarkBg),
+                            modifier = Modifier.fillMaxWidth(),
+                            contentPadding = PaddingValues(vertical = 4.dp)
+                        ) {
+                            Icon(Icons.Rounded.Bluetooth, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Turn On Bluetooth", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    } else {
+                        Button(
+                            onClick = onResetConnection,
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = CyberTeal, contentColor = DarkBg),
+                            modifier = Modifier.weight(1f),
+                            contentPadding = PaddingValues(vertical = 4.dp)
+                        ) {
+                            Icon(Icons.Rounded.RestartAlt, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Reset Link", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        OutlinedButton(
+                            onClick = onAutoDetectBand,
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, CyberTeal),
+                            modifier = Modifier.weight(1f),
+                            contentPadding = PaddingValues(vertical = 4.dp)
+                        ) {
+                            Icon(Icons.Rounded.Search, contentDescription = null, tint = CyberTeal, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Auto-Find Band", color = CyberTeal, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// =========================================================================
+// 2. MODERN CALL ALERT CARD
+// =========================================================================
+
+private data class CallOptionItem(
+    val pattern: AirHapticPattern,
+    val title: String,
+    val subtitle: String,
+    val icon: androidx.compose.ui.graphics.vector.ImageVector
+)
+
+@Composable
+fun ModernCallAlertCard(
+    isEnabled: Boolean,
     selectedPattern: AirHapticPattern,
     isTesting: Boolean,
     hasPhonePerm: Boolean,
-    onToggleEnabled: (Boolean) -> Unit,
+    onToggle: (Boolean) -> Unit,
     onSelectPattern: (AirHapticPattern) -> Unit,
     onRequestPerm: () -> Unit,
-    onTestCall: () -> Unit
+    onToggleTest: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = SurfaceCard),
-        border = BorderStroke(1.dp, if (isCallAlertEnabled) FlameOrange.copy(alpha = 0.5f) else SurfaceCardStroke)
+        border = BorderStroke(1.dp, if (isEnabled) FlameOrange.copy(alpha = 0.4f) else SurfaceCardStroke)
     ) {
         Column(modifier = Modifier.padding(18.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
                     Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .background(FlameOrange.copy(alpha = 0.2f))
+                            .size(42.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(FlameOrange.copy(alpha = 0.15f))
+                            .border(1.dp, FlameOrange.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
                     ) {
-                        Icon(imageVector = Icons.Rounded.PhoneInTalk, contentDescription = null, tint = FlameOrange, modifier = Modifier.size(20.dp))
+                        Icon(
+                            imageVector = Icons.Rounded.PhoneInTalk,
+                            contentDescription = null,
+                            tint = FlameOrange,
+                            modifier = Modifier.size(22.dp)
+                        )
                     }
-                    Spacer(modifier = Modifier.width(10.dp))
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
                     Column {
                         Text(
-                            text = "INCOMING CALL VIBRATION",
+                            text = "Incoming Calls",
                             color = TextWhite,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.5.sp
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "Direct BLE buzz without turning on phone screen",
+                            text = "Vibrate band on ring without waking screen",
                             color = TextMuted,
                             fontSize = 11.sp
                         )
@@ -562,12 +730,13 @@ fun CallFeatureCard(
                 }
 
                 Switch(
-                    checked = isCallAlertEnabled,
-                    onCheckedChange = onToggleEnabled,
+                    checked = isEnabled,
+                    onCheckedChange = onToggle,
                     colors = SwitchDefaults.colors(
                         checkedThumbColor = TextWhite,
                         checkedTrackColor = FlameOrange,
-                        uncheckedTrackColor = SurfaceCardElevated
+                        uncheckedTrackColor = SurfaceCardElevated,
+                        uncheckedThumbColor = TextDim
                     )
                 )
             }
@@ -580,139 +749,113 @@ fun CallFeatureCard(
                     shape = RoundedCornerShape(8.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text(text = "Grant Phone State Permission ↗", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Text(text = "Grant Phone Permission ↗", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            if (isEnabled) {
+                Spacer(modifier = Modifier.height(14.dp))
 
-            Text(
-                text = "Call Vibration Pattern:",
-                color = TextDim,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium
-            )
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            // Pattern options
-            val patterns = listOf(
-                AirHapticPattern.URGENT,
-                AirHapticPattern.CONTINUOUS,
-                AirHapticPattern.DOUBLE,
-                AirHapticPattern.TRIPLE
-            )
-
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                items(patterns) { pattern ->
-                    val isSelected = selectedPattern == pattern
-                    FilterChip(
-                        selected = isSelected,
-                        onClick = { onSelectPattern(pattern) },
-                        label = { Text(pattern.displayName, fontSize = 11.sp, fontWeight = FontWeight.Bold) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = FlameOrange,
-                            selectedLabelColor = TextWhite,
-                            containerColor = SurfaceCardElevated,
-                            labelColor = TextWhite
+                // Pattern options selector (2 options: Urgent Alert and Continuous Ring)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    val callOptions = listOf(
+                        CallOptionItem(
+                            AirHapticPattern.URGENT,
+                            "Urgent",
+                            "Pulsed Bursts",
+                            Icons.Rounded.Bolt
                         ),
-                        border = FilterChipDefaults.filterChipBorder(
-                            enabled = true,
-                            selected = isSelected,
-                            borderColor = if (isSelected) FlameOrange else SurfaceCardStroke
+                        CallOptionItem(
+                            AirHapticPattern.CONTINUOUS,
+                            "Continuous",
+                            "Steady Buzz",
+                            Icons.Rounded.GraphicEq
                         )
                     )
+
+                    callOptions.forEach { opt ->
+                        val pattern = opt.pattern
+                        val title = opt.title
+                        val subtitle = opt.subtitle
+                        val icon = opt.icon
+                        val isSelected = selectedPattern == pattern
+                        Surface(
+                            onClick = { onSelectPattern(pattern) },
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (isSelected) FlameOrange.copy(alpha = 0.16f) else DarkBg,
+                            border = BorderStroke(
+                                if (isSelected) 1.5.dp else 1.dp,
+                                if (isSelected) FlameOrange else SurfaceCardStroke
+                            ),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (isSelected) FlameOrange.copy(alpha = 0.25f) else SurfaceCardElevated)
+                                ) {
+                                    Icon(
+                                        imageVector = icon,
+                                        contentDescription = null,
+                                        tint = if (isSelected) FlameOrange else TextMuted,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text(
+                                        text = title,
+                                        color = if (isSelected) FlameOrange else TextWhite,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = subtitle,
+                                        color = if (isSelected) TextWhite.copy(alpha = 0.85f) else TextDim,
+                                        fontSize = 10.sp,
+                                        maxLines = 1
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
-            }
 
-            Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
-            Button(
-                onClick = onTestCall,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (isTesting) FlameOrange else FlameOrange.copy(alpha = 0.85f),
-                    contentColor = TextWhite
-                )
-            ) {
-                Icon(imageVector = Icons.Rounded.Vibration, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = if (isTesting) "Vibrating Fitbit Air Now..." else "Test Call Vibration on Band",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        }
-    }
-}
-
-// =========================================================================
-// 3. PATTERN TEST BENCH CARD
-// =========================================================================
-
-@Composable
-fun PatternTestBenchCard(
-    activePattern: AirHapticPattern?,
-    onTest: (AirHapticPattern) -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = SurfaceCard),
-        border = BorderStroke(1.dp, SurfaceCardStroke)
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "HAPTIC PATTERN BENCH",
-                    color = TextWhite,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 0.5.sp
-                )
-                Text(text = "PURE BLE", color = CyberTeal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-            }
-
-            Text(
-                text = "Tap any rhythm below to execute directly on the wristband via CoAP POST /settings.",
-                color = TextMuted,
-                fontSize = 11.sp,
-                modifier = Modifier.padding(top = 2.dp, bottom = 12.dp)
-            )
-
-            LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                val list = listOf(
-                    AirHapticPattern.SINGLE,
-                    AirHapticPattern.DOUBLE,
-                    AirHapticPattern.TRIPLE,
-                    AirHapticPattern.LONG_GAP,
-                    AirHapticPattern.URGENT
-                )
-                items(list) { pattern ->
-                    val isTesting = activePattern == pattern
-                    Button(
-                        onClick = { onTest(pattern) },
-                        shape = RoundedCornerShape(10.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (isTesting) CyberTeal else SurfaceCardElevated,
-                            contentColor = if (isTesting) DarkBg else TextWhite
-                        ),
-                        border = BorderStroke(1.dp, if (isTesting) CyberTeal else SurfaceCardStroke),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                        modifier = Modifier.height(34.dp)
+                // Single Play / Pause Button for testing
+                Surface(
+                    onClick = onToggleTest,
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (isTesting) FlameOrange else SurfaceCardElevated,
+                    border = BorderStroke(1.dp, if (isTesting) FlameOrange else SurfaceCardStroke),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(vertical = 9.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
+                        Icon(
+                            imageVector = if (isTesting) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                            contentDescription = if (isTesting) "Pause Test" else "Play Test",
+                            tint = if (isTesting) DarkBg else FlameOrange,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = if (isTesting) "Pulsing..." else pattern.wireName,
-                            fontSize = 11.sp,
+                            text = if (isTesting) "Pause Test" else "Play Test Alert",
+                            color = if (isTesting) DarkBg else FlameOrange,
+                            fontSize = 12.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -723,157 +866,285 @@ fun PatternTestBenchCard(
 }
 
 // =========================================================================
-// 4. APP ROUTING CARD
+// 3. PRIORITY APPS CARD (ALLOWED ON TOP)
 // =========================================================================
 
 @Composable
-fun AppRoutingCard(
+fun ModernPriorityAppsCard(
+    isEnabled: Boolean,
     hasListenerPerm: Boolean,
     rules: List<AirNotificationRule>,
-    rawText: String,
-    isEditing: Boolean,
-    onToggleEditing: () -> Unit,
-    onTextChange: (String) -> Unit,
-    onSave: () -> Unit,
+    isTestingVibration: Boolean = false,
+    activeTestingAppPackage: String? = null,
+    onToggleMaster: (Boolean) -> Unit,
+    onToggleRule: (Int, Boolean) -> Unit,
+    onOpenPattern: (Int) -> Unit,
+    onPickApp: (Int) -> Unit,
+    onTestAppPattern: (AirNotificationRule) -> Unit = {},
+    onStopVibration: () -> Unit = {},
+    onResetDefaults: () -> Unit,
     onOpenListenerSettings: () -> Unit
 ) {
+    val context = LocalContext.current
+    var isExpanded by rememberSaveable { mutableStateOf(true) }
+    val activeCount = rules.count { it.isEnabled }
+    val grantedRules = remember(rules) {
+        rules.filter { it.isEnabled }
+    }
+    // Sort so allowed (enabled) apps always stay at the top!
+    val sortedRules = remember(rules) {
+        rules.sortedWith(compareByDescending { it.isEnabled })
+    }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(containerColor = SurfaceCard),
-        border = BorderStroke(1.dp, if (hasListenerPerm) SurfaceCardStroke else WarningAmber.copy(alpha = 0.5f))
+        border = BorderStroke(1.dp, if (!isEnabled) SurfaceCardStroke else if (hasListenerPerm) CyberTeal.copy(alpha = 0.35f) else WarningAmber.copy(alpha = 0.5f))
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(modifier = Modifier.padding(18.dp)) {
+            // Header Row (Clicking left toggles expand/collapse)
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text(
-                    text = "APP NOTIFICATION ROUTING",
-                    color = TextWhite,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 0.5.sp
-                )
-                Text(
-                    text = "${rules.size} ACTIVE",
-                    color = if (hasListenerPerm) NeonEmerald else WarningAmber,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
-            Text(
-                text = "Route app notifications (WhatsApp, Telegram, etc.) with custom vibration patterns.",
-                color = TextMuted,
-                fontSize = 11.sp,
-                modifier = Modifier.padding(top = 2.dp, bottom = 10.dp)
-            )
-
-            if (!hasListenerPerm) {
-                Button(
-                    onClick = onOpenListenerSettings,
-                    shape = RoundedCornerShape(8.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = WarningAmber, contentColor = DarkBg),
-                    modifier = Modifier.fillMaxWidth()
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { isExpanded = !isExpanded }
                 ) {
-                    Text(text = "Grant Notification Access in Settings ↗", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(if (isEnabled) CyberTeal.copy(alpha = 0.15f) else SurfaceCardElevated)
+                            .border(1.dp, if (isEnabled) CyberTeal.copy(alpha = 0.35f) else SurfaceCardStroke, RoundedCornerShape(10.dp))
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.NotificationsActive,
+                            contentDescription = null,
+                            tint = if (isEnabled) CyberTeal else TextMuted,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "Priority Apps",
+                            color = TextWhite,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = if (!isEnabled) "Notification vibrations paused" else if (isExpanded) "Allowed apps stay at top" else "${grantedRules.size} of 5 on",
+                            color = if (!isEnabled) WarningAmber else TextMuted,
+                            fontSize = 11.sp
+                        )
+                    }
                 }
-                Spacer(modifier = Modifier.height(10.dp))
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    // Master Notification Vibration Switch
+                    Switch(
+                        checked = isEnabled,
+                        onCheckedChange = onToggleMaster,
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = TextWhite,
+                            checkedTrackColor = CyberTeal,
+                            uncheckedTrackColor = SurfaceCardElevated,
+                            uncheckedThumbColor = TextDim
+                        )
+                    )
+
+                    // Arrow Only Toggle Button
+                    IconButton(
+                        onClick = { isExpanded = !isExpanded },
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (isExpanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
+                            contentDescription = if (isExpanded) "Collapse" else "Expand",
+                            tint = CyberTeal,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
             }
 
-            if (!isEditing) {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    rules.forEach { rule ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(SurfaceCardElevated)
-                                .border(1.dp, SurfaceCardStroke, RoundedCornerShape(10.dp))
-                                .padding(horizontal = 12.dp, vertical = 7.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+            // COLLAPSED STATE: Only show small icons of apps that are granted in horizontal!
+            AnimatedVisibility(
+                visible = !isExpanded,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+            ) {
+                Column(modifier = Modifier.padding(top = 12.dp)) {
+                    if (grantedRules.isNotEmpty()) {
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text(
-                                text = rule.packageName,
-                                color = TextWhite,
-                                fontSize = 11.sp,
-                                fontFamily = FontFamily.Monospace
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(DarkBg)
-                                    .padding(horizontal = 8.dp, vertical = 3.dp)
+                            items(grantedRules, key = { it.packageName }) { rule ->
+                                val appName = InstalledAppsManager.getAppName(context, rule.packageName)
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier
+                                        .size(46.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(SurfaceCardElevated)
+                                        .border(1.dp, CyberTeal.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
+                                        .clickable { isExpanded = true }
+                                ) {
+                                    AppRealIcon(
+                                        packageName = rule.packageName,
+                                        fallbackText = appName,
+                                        modifier = Modifier.size(32.dp)
+                                    )
+                                    // Neon green active indicator dot
+                                    Box(
+                                        modifier = Modifier
+                                            .align(Alignment.TopEnd)
+                                            .padding(4.dp)
+                                            .size(7.dp)
+                                            .clip(CircleShape)
+                                            .background(NeonEmerald)
+                                    )
+                                }
+                            }
+
+                            // Tap to expand button at the end
+                            item {
+                                Surface(
+                                    onClick = { isExpanded = true },
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = DarkBg,
+                                    border = BorderStroke(1.dp, SurfaceCardStroke)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Add,
+                                            contentDescription = "Expand",
+                                            tint = CyberTeal,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = "Manage",
+                                            color = CyberTeal,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        Surface(
+                            onClick = { isExpanded = true },
+                            shape = RoundedCornerShape(12.dp),
+                            color = DarkBg,
+                            border = BorderStroke(1.dp, SurfaceCardStroke),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = rule.pattern.wireName,
-                                    color = CyberTeal,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold
+                                    text = "No apps enabled yet • Tap to choose apps",
+                                    color = TextMuted,
+                                    fontSize = 12.sp,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Icon(
+                                    imageVector = Icons.Rounded.KeyboardArrowDown,
+                                    contentDescription = null,
+                                    tint = CyberTeal,
+                                    modifier = Modifier.size(16.dp)
                                 )
                             }
                         }
                     }
                 }
+            }
 
-                Spacer(modifier = Modifier.height(10.dp))
-
-                OutlinedButton(
-                    onClick = onToggleEditing,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp),
-                    border = BorderStroke(1.dp, SurfaceCardStroke),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = TextWhite)
-                ) {
-                    Icon(imageVector = Icons.Rounded.Edit, contentDescription = null, modifier = Modifier.size(14.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(text = "Edit App Rules (package=pattern)", fontSize = 11.sp)
-                }
-            } else {
-                OutlinedTextField(
-                    value = rawText,
-                    onValueChange = onTextChange,
-                    modifier = Modifier.fillMaxWidth(),
-                    textStyle = androidx.compose.ui.text.TextStyle(
-                        color = TextWhite,
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 11.sp
-                    ),
-                    shape = RoundedCornerShape(10.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = DarkBg,
-                        unfocusedContainerColor = DarkBg,
-                        focusedBorderColor = CyberTeal,
-                        unfocusedBorderColor = SurfaceCardStroke
-                    )
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Button(
-                        onClick = onSave,
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(10.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryTeal, contentColor = TextWhite)
-                    ) {
-                        Text(text = "Save Rules", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            // EXPANDED STATE: Shows all apps with slots, toggles, patterns, swap, reset
+            AnimatedVisibility(
+                visible = isExpanded,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+            ) {
+                Column(modifier = Modifier.padding(top = 14.dp)) {
+                    if (!hasListenerPerm) {
+                        Button(
+                            onClick = onOpenListenerSettings,
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = WarningAmber, contentColor = DarkBg),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(text = "Enable Notification Access in Settings ↗", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
                     }
 
-                    OutlinedButton(
-                        onClick = onToggleEditing,
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(10.dp),
-                        border = BorderStroke(1.dp, SurfaceCardStroke),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = TextMuted)
+                    // The 5 App Slot Rows (rearranged with allowed on top!)
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        sortedRules.take(5).forEach { rule ->
+                            val originalIndex = rules.indexOfFirst { it.packageName.equals(rule.packageName, ignoreCase = true) }
+                            val targetIndex = if (originalIndex >= 0) originalIndex else 0
+                            val isThisAppTesting = isTestingVibration && activeTestingAppPackage.equals(rule.packageName, ignoreCase = true)
+                            ModernAppSlotRow(
+                                rule = rule,
+                                isTesting = isThisAppTesting,
+                                onToggleTest = {
+                                    if (isThisAppTesting) {
+                                        onStopVibration()
+                                    } else {
+                                        onTestAppPattern(rule)
+                                    }
+                                },
+                                onToggle = { enabled -> onToggleRule(targetIndex, enabled) },
+                                onOpenPattern = { onOpenPattern(targetIndex) },
+                                onPickApp = { onPickApp(targetIndex) }
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text(text = "Cancel", fontSize = 11.sp)
+                        Text(
+                            text = "Tap app icon or name to swap app",
+                            color = TextDim,
+                            fontSize = 11.sp
+                        )
+
+                        TextButton(
+                            onClick = onResetDefaults,
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Refresh,
+                                contentDescription = null,
+                                tint = TextMuted,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(text = "Reset 5 Defaults", color = TextMuted, fontSize = 11.sp)
+                        }
                     }
                 }
             }
@@ -882,11 +1153,137 @@ fun AppRoutingCard(
 }
 
 // =========================================================================
-// 5. PERMISSION CHECKLIST CARD
+// MODERN APP SLOT ROW (USES REAL NATIVE APP ICONS)
 // =========================================================================
 
 @Composable
-fun PermissionChecklistCard(
+fun ModernAppSlotRow(
+    rule: AirNotificationRule,
+    isTesting: Boolean = false,
+    onToggleTest: () -> Unit = {},
+    onToggle: (Boolean) -> Unit,
+    onOpenPattern: () -> Unit,
+    onPickApp: () -> Unit
+) {
+    val context = LocalContext.current
+    val appName = remember(rule.packageName) {
+        InstalledAppsManager.getAppName(context, rule.packageName)
+    }
+
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = if (rule.isEnabled) SurfaceCardElevated else SurfaceCardElevated.copy(alpha = 0.5f),
+        border = BorderStroke(
+            1.dp,
+            if (rule.isEnabled) CyberTeal.copy(alpha = 0.35f) else SurfaceCardStroke
+        ),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            // Left: Real App Icon + Name + Pattern Pill
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable { onPickApp() }
+            ) {
+                AppRealIcon(
+                    packageName = rule.packageName,
+                    fallbackText = appName,
+                    modifier = Modifier.size(44.dp)
+                )
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                Column {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = appName,
+                            color = if (rule.isEnabled) TextWhite else TextDim,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(
+                            imageVector = Icons.Rounded.KeyboardArrowDown,
+                            contentDescription = "Swap App",
+                            tint = TextMuted,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(2.dp))
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Surface(
+                            onClick = onOpenPattern,
+                            shape = RoundedCornerShape(6.dp),
+                            color = if (rule.isEnabled) DarkBg else DarkBg.copy(alpha = 0.5f),
+                            border = BorderStroke(1.dp, if (rule.isEnabled) CyberTeal.copy(alpha = 0.4f) else SurfaceCardStroke)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.GraphicEq,
+                                    contentDescription = null,
+                                    tint = if (rule.isEnabled) CyberTeal else TextDim,
+                                    modifier = Modifier.size(11.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = rule.pattern.displayName,
+                                    color = if (rule.isEnabled) CyberTeal else TextDim,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Icon(
+                                    imageVector = Icons.Rounded.KeyboardArrowDown,
+                                    contentDescription = "Choose Pattern",
+                                    tint = if (rule.isEnabled) CyberTeal.copy(alpha = 0.7f) else TextDim,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Right: Toggle Switch
+            Switch(
+                checked = rule.isEnabled,
+                onCheckedChange = onToggle,
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = TextWhite,
+                    checkedTrackColor = CyberTeal,
+                    uncheckedTrackColor = DarkBg,
+                    uncheckedThumbColor = TextDim
+                )
+            )
+        }
+    }
+}
+
+// =========================================================================
+// 4. BETTER PERMISSION READINESS CARD (MODERN UI)
+// =========================================================================
+
+@Composable
+fun ModernPermissionsCard(
     hasPhonePerm: Boolean,
     hasBluetoothPerm: Boolean,
     hasListenerPerm: Boolean,
@@ -896,92 +1293,549 @@ fun PermissionChecklistCard(
     onRequestBatteryOptimization: () -> Unit,
     onOpenListenerSettings: () -> Unit
 ) {
+    var isExpanded by rememberSaveable { mutableStateOf(false) }
+    val allReady = hasPhonePerm && hasBluetoothPerm && hasListenerPerm && !isBatteryOptimized
+    val grantedCount = (if (hasBluetoothPerm) 1 else 0) +
+            (if (hasPhonePerm) 1 else 0) +
+            (if (hasListenerPerm) 1 else 0) +
+            (if (!isBatteryOptimized) 1 else 0)
+
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(containerColor = SurfaceCard),
-        border = BorderStroke(1.dp, SurfaceCardStroke)
+        border = BorderStroke(
+            1.dp,
+            if (allReady) NeonEmerald.copy(alpha = 0.35f) else WarningAmber.copy(alpha = 0.45f)
+        )
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = "SYSTEM HEALTH & PERMISSIONS",
-                color = TextWhite,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 0.5.sp
-            )
-            Spacer(modifier = Modifier.height(10.dp))
+        Column(modifier = Modifier.padding(18.dp)) {
+            // Header Row (Clicking toggles expand/collapse)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { isExpanded = !isExpanded },
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(if (allReady) EmeraldBg else AmberBg)
+                            .border(
+                                1.dp,
+                                if (allReady) NeonEmerald.copy(alpha = 0.4f) else WarningAmber.copy(alpha = 0.4f),
+                                RoundedCornerShape(10.dp)
+                            )
+                    ) {
+                        Icon(
+                            imageVector = if (allReady) Icons.Rounded.VerifiedUser else Icons.Rounded.SecurityUpdateWarning,
+                            contentDescription = null,
+                            tint = if (allReady) NeonEmerald else WarningAmber,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "System Readiness",
+                            color = TextWhite,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = if (allReady) "All permissions active" else "$grantedCount of 4 granted",
+                            color = if (allReady) EmeraldText else AmberText,
+                            fontSize = 11.sp
+                        )
+                    }
+                }
 
-            PermissionRow(
-                title = "Bluetooth & Nearby Scanning",
-                desc = "Required for BLE GATT and DTLS 1.2 handshake",
-                isGranted = hasBluetoothPerm,
-                onClick = onRequestBluetoothPerm
-            )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(if (allReady) EmeraldBg else AmberBg)
+                            .border(
+                                1.dp,
+                                if (allReady) NeonEmerald.copy(alpha = 0.5f) else WarningAmber.copy(alpha = 0.5f),
+                                CircleShape
+                            )
+                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = if (allReady) "ALL SET" else "PENDING",
+                            color = if (allReady) EmeraldText else AmberText,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
 
-            Spacer(modifier = Modifier.height(6.dp))
+                    // Arrow Only Toggle Button
+                    IconButton(
+                        onClick = { isExpanded = !isExpanded },
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (isExpanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
+                            contentDescription = if (isExpanded) "Collapse" else "Expand",
+                            tint = CyberTeal,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+            }
 
-            PermissionRow(
-                title = "Phone State & Calls",
-                desc = "Required to detect incoming calls instantly",
-                isGranted = hasPhonePerm,
-                onClick = onRequestPhonePerm
-            )
+            // COLLAPSED STATE: 4 compact horizontal status chips
+            AnimatedVisibility(
+                visible = !isExpanded,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    PermissionCompactChip(
+                        modifier = Modifier.weight(1f),
+                        label = "BLE",
+                        isGranted = hasBluetoothPerm,
+                        icon = Icons.Rounded.Bluetooth,
+                        onClick = { if (!hasBluetoothPerm) onRequestBluetoothPerm() else isExpanded = true }
+                    )
+                    PermissionCompactChip(
+                        modifier = Modifier.weight(1f),
+                        label = "Calls",
+                        isGranted = hasPhonePerm,
+                        icon = Icons.Rounded.PhoneInTalk,
+                        onClick = { if (!hasPhonePerm) onRequestPhonePerm() else isExpanded = true }
+                    )
+                    PermissionCompactChip(
+                        modifier = Modifier.weight(1f),
+                        label = "Notifs",
+                        isGranted = hasListenerPerm,
+                        icon = Icons.Rounded.NotificationsActive,
+                        onClick = { if (!hasListenerPerm) onOpenListenerSettings() else isExpanded = true }
+                    )
+                    PermissionCompactChip(
+                        modifier = Modifier.weight(1f),
+                        label = "Battery",
+                        isGranted = !isBatteryOptimized,
+                        icon = Icons.Rounded.BatteryChargingFull,
+                        onClick = { if (isBatteryOptimized) onRequestBatteryOptimization() else isExpanded = true }
+                    )
+                }
+            }
 
-            Spacer(modifier = Modifier.height(6.dp))
+            // EXPANDED STATE: Full 2x2 Grid of Permission Tiles
+            AnimatedVisibility(
+                visible = isExpanded,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+            ) {
+                Column(
+                    modifier = Modifier.padding(top = 14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        PermissionTile(
+                            modifier = Modifier.weight(1f),
+                            title = "Bluetooth BLE",
+                            description = if (hasBluetoothPerm) "Connected & ready" else "Tap to grant",
+                            isGranted = hasBluetoothPerm,
+                            icon = Icons.Rounded.Bluetooth,
+                            onClick = onRequestBluetoothPerm
+                        )
+                        PermissionTile(
+                            modifier = Modifier.weight(1f),
+                            title = "Call State",
+                            description = if (hasPhonePerm) "Incoming detection ready" else "Tap to grant",
+                            isGranted = hasPhonePerm,
+                            icon = Icons.Rounded.PhoneInTalk,
+                            onClick = onRequestPhonePerm
+                        )
+                    }
 
-            PermissionRow(
-                title = "Notification Listener",
-                desc = "Required to route WhatsApp and app alerts",
-                isGranted = hasListenerPerm,
-                onClick = onOpenListenerSettings
-            )
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            PermissionRow(
-                title = "Unrestricted Battery Mode",
-                desc = "Prevents OS battery killer from stopping background service",
-                isGranted = !isBatteryOptimized,
-                onClick = onRequestBatteryOptimization
-            )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        PermissionTile(
+                            modifier = Modifier.weight(1f),
+                            title = "Notifications",
+                            description = if (hasListenerPerm) "Priority listener active" else "Tap to grant",
+                            isGranted = hasListenerPerm,
+                            icon = Icons.Rounded.NotificationsActive,
+                            onClick = onOpenListenerSettings
+                        )
+                        PermissionTile(
+                            modifier = Modifier.weight(1f),
+                            title = "Battery Mode",
+                            description = if (!isBatteryOptimized) "Unrestricted background" else "Tap to whitelist",
+                            isGranted = !isBatteryOptimized,
+                            icon = Icons.Rounded.BatteryChargingFull,
+                            onClick = onRequestBatteryOptimization
+                        )
+                    }
+                }
+            }
         }
     }
 }
 
 @Composable
-fun PermissionRow(
-    title: String,
-    desc: String,
+fun PermissionCompactChip(
+    modifier: Modifier = Modifier,
+    label: String,
     isGranted: Boolean,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
     onClick: () -> Unit
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .background(SurfaceCardElevated)
-            .border(1.dp, SurfaceCardStroke, RoundedCornerShape(10.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(10.dp),
+        color = if (isGranted) SurfaceCardElevated else AmberBg.copy(alpha = 0.25f),
+        border = BorderStroke(
+            1.dp,
+            if (isGranted) SurfaceCardStroke else WarningAmber.copy(alpha = 0.4f)
+        ),
+        modifier = modifier
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(text = title, color = TextWhite, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-            Text(text = desc, color = TextMuted, fontSize = 10.sp)
+        Row(
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (isGranted) NeonEmerald else WarningAmber,
+                modifier = Modifier.size(13.dp)
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = label,
+                color = if (isGranted) TextWhite else AmberText,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1
+            )
+            Spacer(modifier = Modifier.width(3.dp))
+            Icon(
+                imageVector = if (isGranted) Icons.Rounded.Check else Icons.Rounded.PriorityHigh,
+                contentDescription = null,
+                tint = if (isGranted) NeonEmerald else WarningAmber,
+                modifier = Modifier.size(11.dp)
+            )
         }
-        Spacer(modifier = Modifier.width(8.dp))
+    }
+}
+
+
+@Composable
+fun PermissionTile(
+    modifier: Modifier = Modifier,
+    title: String,
+    description: String,
+    isGranted: Boolean,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = if (!isGranted) onClick else { {} },
+        shape = RoundedCornerShape(14.dp),
+        color = if (isGranted) SurfaceCardElevated else AmberBg.copy(alpha = 0.25f),
+        border = BorderStroke(
+            1.dp,
+            if (isGranted) SurfaceCardStroke else WarningAmber.copy(alpha = 0.4f)
+        ),
+        modifier = modifier
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .background(if (isGranted) DarkBg else WarningAmber.copy(alpha = 0.2f))
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = if (isGranted) NeonEmerald else WarningAmber,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(10.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = title,
+                        color = TextWhite,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    if (isGranted) {
+                        Icon(
+                            imageVector = Icons.Rounded.CheckCircle,
+                            contentDescription = "Granted",
+                            tint = NeonEmerald,
+                            modifier = Modifier.size(12.dp)
+                        )
+                    }
+                }
+                Text(
+                    text = description,
+                    color = if (isGranted) TextMuted else WarningAmber,
+                    fontSize = 10.sp,
+                    maxLines = 1
+                )
+            }
+        }
+    }
+}
+
+// =========================================================================
+// =========================================================================
+// 5. PRIVACY & HOW IT WORKS (INLINE EXPANDABLE ACCORDION CARD)
+// =========================================================================
+
+@Composable
+fun ModernPrivacyAccordionCard() {
+    var isExpanded by rememberSaveable { mutableStateOf(false) }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = SurfaceCard),
+        border = BorderStroke(1.dp, CyberTeal.copy(alpha = 0.25f))
+    ) {
+        Column(
+            modifier = Modifier.padding(
+                horizontal = 14.dp,
+                vertical = if (isExpanded) 14.dp else 9.dp
+            )
+        ) {
+            // Single-line Header Row: Title + Arrow toggle (no description subtitle, no Learn More text)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { isExpanded = !isExpanded },
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(28.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(CyberTeal.copy(alpha = 0.15f))
+                            .border(1.dp, CyberTeal.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.HelpOutline,
+                            contentDescription = null,
+                            tint = CyberTeal,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(10.dp))
+
+                    Text(
+                        text = "FAQs & How AirBridge Works",
+                        color = TextWhite,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1
+                    )
+                }
+
+                IconButton(
+                    onClick = { isExpanded = !isExpanded },
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        imageVector = if (isExpanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
+                        contentDescription = if (isExpanded) "Collapse" else "Expand",
+                        tint = CyberTeal,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
+            // Accordion Content (Smoothly expands inline without any popup dialog)
+            AnimatedVisibility(
+                visible = isExpanded,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+            ) {
+                Column(
+                    modifier = Modifier.padding(top = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    PrivacyPillarCard(
+                        icon = Icons.Rounded.Lock,
+                        title = "Does it vibrate when phone is locked?",
+                        description = "Yes, 100%. AirBridge runs with background Android wake-locks. When a call or notification arrives while your phone is locked or in your pocket, AirBridge connects directly via BLE and vibrates your Fitbit Air instantly without waking or unlocking your screen."
+                    )
+
+                    PrivacyPillarCard(
+                        icon = Icons.Rounded.PhoneInTalk,
+                        title = "How does incoming call vibration work?",
+                        description = "When your phone rings, AirBridge continuously pulses the Urgent Alert pattern on your Fitbit Air until you answer, reject, or silence the call."
+                    )
+
+                    PrivacyPillarCard(
+                        icon = Icons.Rounded.Sync,
+                        title = "Why does Google Health say 'Synced X min ago'?",
+                        description = "This is Google Health's default battery-saver schedule. It syncs in 15–30 minute batches in the background. Pull down in Google Health anytime for an instant live sync. AirBridge releases Bluetooth in 1–2s so Google sync is never blocked."
+                    )
+
+                    PrivacyPillarCard(
+                        icon = Icons.Rounded.Bolt,
+                        title = "Does it drain phone or Fitbit battery?",
+                        description = "Virtually zero (< 1% per day). AirBridge uses event-driven Android listeners and stays completely asleep until an alert arrives. On the band, Bluetooth Low Energy uses micro-joules, consuming only ~1–2% battery across a full day."
+                    )
+
+                    PrivacyPillarCard(
+                        icon = Icons.Rounded.RestartAlt,
+                        title = "What if connection fails or is interrupted?",
+                        description = "If Bluetooth drops or band was out of range, tap 'Reset' or 'Auto-Find Band' at the top. AirBridge flushes stuck Android GATT caches, clears stale DTLS handshakes, and re-links in seconds."
+                    )
+
+                    PrivacyPillarCard(
+                        icon = Icons.Rounded.AccountBalance,
+                        title = "Does this app affect UPI or Banking apps?",
+                        description = "Not at all! Unlike older notification tools, AirBridge requires NO Accessibility Service, NO overlay draw permissions, and NO screen capture. Android Banking and UPI apps (GPay, PhonePe, Paytm, Banking apps) detect zero risk and work normally."
+                    )
+
+                    PrivacyPillarCard(
+                        icon = Icons.Rounded.VisibilityOff,
+                        title = "Does it read my messages or private data?",
+                        description = "Never. AirBridge only inspects which app sent the notification (e.g. WhatsApp, Gmail) to trigger your custom vibration pattern. It never reads or stores message text, photos, sender details, or contacts. 100% offline & on-device."
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun PrivacyPillarCard(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    description: String
+) {
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = SurfaceCardElevated,
+        border = BorderStroke(1.dp, SurfaceCardStroke),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(14.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(DarkBg)
+                    .border(1.dp, SurfaceCardStroke, RoundedCornerShape(10.dp))
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = CyberTeal,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column {
+                Text(
+                    text = title,
+                    color = TextWhite,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = description,
+                    color = TextMuted,
+                    fontSize = 11.sp,
+                    lineHeight = 16.sp
+                )
+            }
+        }
+    }
+}
+
+// =========================================================================
+// REAL NATIVE APP ICON COMPOSABLE
+// =========================================================================
+
+@Composable
+fun AppRealIcon(
+    packageName: String,
+    fallbackText: String,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val bitmap = remember(packageName) {
+        try {
+            val iconDrawable = InstalledAppsManager.getAppIcon(context, packageName)
+            iconDrawable?.toBitmap(128, 128)?.asImageBitmap()
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    if (bitmap != null) {
+        Image(
+            bitmap = bitmap,
+            contentDescription = fallbackText,
+            modifier = modifier.clip(RoundedCornerShape(12.dp))
+        )
+    } else {
         Box(
-            modifier = Modifier
-                .clip(RoundedCornerShape(6.dp))
-                .background(if (isGranted) EmeraldBg else AmberBg)
-                .padding(horizontal = 8.dp, vertical = 4.dp)
+            contentAlignment = Alignment.Center,
+            modifier = modifier
+                .clip(RoundedCornerShape(12.dp))
+                .background(SurfaceCardElevated)
+                .border(1.dp, SurfaceCardStroke, RoundedCornerShape(12.dp))
         ) {
             Text(
-                text = if (isGranted) "GRANTED" else "FIX ↗",
-                color = if (isGranted) EmeraldText else AmberText,
-                fontSize = 10.sp,
+                text = fallbackText.take(2).uppercase(),
+                color = CyberTeal,
+                fontSize = 13.sp,
                 fontWeight = FontWeight.Bold
             )
         }
@@ -989,42 +1843,453 @@ fun PermissionRow(
 }
 
 // =========================================================================
-// 6. ZERO ACCESSIBILITY ARCHITECTURE CARD
+// APP PICKER DIALOG (DISCOVERS ALL APPS ON PHONE WITH REAL ICONS & SEARCH)
 // =========================================================================
 
 @Composable
-fun ZeroAccessibilityArchitectureCard() {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = SurfaceCardElevated),
-        border = BorderStroke(1.dp, CyberTeal.copy(alpha = 0.3f))
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(imageVector = Icons.Rounded.VerifiedUser, contentDescription = null, tint = CyberTeal, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "Zero Accessibility • Clean Background BLE",
-                    color = TextWhite,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold
-                )
+fun AppPickerDialog(
+    slotNumber: Int,
+    currentPackage: String,
+    onDismiss: () -> Unit,
+    onSelectApp: (DeviceApp) -> Unit
+) {
+    val context = LocalContext.current
+    var searchQuery by remember { mutableStateOf("") }
+
+    val allApps = remember {
+        InstalledAppsManager.getInstalledLauncherApps(context)
+    }
+
+    val filteredApps = remember(searchQuery, allApps) {
+        if (searchQuery.isBlank()) {
+            allApps
+        } else {
+            val q = searchQuery.trim().lowercase()
+            allApps.filter {
+                it.appName.lowercase().contains(q) || it.packageName.lowercase().contains(q)
             }
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(
-                text = "Unlike accessibility screen-tapping which pops the Fitbit app onto the phone screen and interrupts you, this app operates purely via low-energy Bluetooth GATT packets, DTLS 1.2 BOOTSTRAP, and CoAP Protobuf. The band pulses cleanly on your wrist while your phone screen stays completely untouched.",
-                color = TextMuted,
-                fontSize = 11.sp,
-                lineHeight = 15.sp
-            )
+        }
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(22.dp),
+            colors = CardDefaults.cardColors(containerColor = SurfaceCard),
+            border = BorderStroke(1.dp, CyberTeal.copy(alpha = 0.4f)),
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.82f)
+        ) {
+            Column(modifier = Modifier.padding(18.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column {
+                        Text(
+                            text = "CHOOSE APP FOR SLOT #$slotNumber",
+                            color = CyberTeal,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.5.sp
+                        )
+                        Text(
+                            text = "Installed on this phone",
+                            color = TextWhite,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(imageVector = Icons.Rounded.Close, contentDescription = "Close", tint = TextMuted)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Search field
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("Search installed apps...", fontSize = 13.sp, color = TextMuted) },
+                    leadingIcon = {
+                        Icon(imageVector = Icons.Rounded.Search, contentDescription = null, tint = CyberTeal, modifier = Modifier.size(18.dp))
+                    },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { searchQuery = "" }) {
+                                Icon(imageVector = Icons.Rounded.Clear, contentDescription = "Clear", tint = TextMuted, modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = TextWhite,
+                        unfocusedTextColor = TextWhite,
+                        focusedBorderColor = CyberTeal,
+                        unfocusedBorderColor = SurfaceCardStroke,
+                        focusedContainerColor = DarkBg,
+                        unfocusedContainerColor = DarkBg
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // List of apps with real icons
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    items(filteredApps, key = { it.packageName }) { app ->
+                        val isSelected = app.packageName.equals(currentPackage, ignoreCase = true)
+                        Surface(
+                            onClick = { onSelectApp(app) },
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (isSelected) SurfaceCardElevated else DarkBg,
+                            border = BorderStroke(1.dp, if (isSelected) CyberTeal else SurfaceCardStroke)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 9.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                AppRealIcon(
+                                    packageName = app.packageName,
+                                    fallbackText = app.appName,
+                                    modifier = Modifier.size(38.dp)
+                                )
+
+                                Spacer(modifier = Modifier.width(12.dp))
+
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = app.appName,
+                                        color = if (isSelected) CyberTeal else TextWhite,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1
+                                    )
+                                    Text(
+                                        text = app.packageName,
+                                        color = TextMuted,
+                                        fontSize = 10.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        maxLines = 1
+                                    )
+                                }
+
+                                if (isSelected) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Check,
+                                        contentDescription = null,
+                                        tint = CyberTeal,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
 
 // =========================================================================
-// 7. BLE SCANNER DIALOG
+// PATTERN SELECTION DIALOG
 // =========================================================================
+
+@Composable
+fun SelectAppPatternDialog(
+    appName: String,
+    packageName: String,
+    currentPattern: AirHapticPattern,
+    isTestingVibration: Boolean = false,
+    activeTestingPattern: AirHapticPattern? = null,
+    onDismiss: () -> Unit,
+    onSelect: (AirHapticPattern) -> Unit,
+    onTestPattern: (AirHapticPattern) -> Unit,
+    onStopVibration: () -> Unit = {}
+) {
+    val patterns = listOf(
+        AirHapticPattern.SINGLE to "1 short pulse for casual updates",
+        AirHapticPattern.DOUBLE to "2 distinct pulses for direct messages",
+        AirHapticPattern.TRIPLE to "3 rhythmic pulses for group chats",
+        AirHapticPattern.LONG_GAP to "2 spaced pulses for reminders",
+        AirHapticPattern.URGENT to "4 rapid urgent pulses for emergencies"
+    )
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(22.dp),
+            colors = CardDefaults.cardColors(containerColor = SurfaceCard),
+            border = BorderStroke(1.dp, CyberTeal.copy(alpha = 0.5f))
+        ) {
+            Column(modifier = Modifier.padding(20.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    AppRealIcon(
+                        packageName = packageName,
+                        fallbackText = appName,
+                        modifier = Modifier.size(36.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "VIBRATION PATTERN",
+                            color = CyberTeal,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.5.sp
+                        )
+                        Text(
+                            text = appName,
+                            color = TextWhite,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    patterns.forEach { (pattern, description) ->
+                        val isSelected = pattern == currentPattern
+                        val isTestingThis = isTestingVibration && activeTestingPattern == pattern
+                        Surface(
+                            onClick = { onSelect(pattern) },
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (isSelected) SurfaceCardElevated else DarkBg,
+                            border = BorderStroke(1.dp, if (isSelected) CyberTeal else SurfaceCardStroke)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    if (isSelected) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.CheckCircle,
+                                            contentDescription = "Selected",
+                                            tint = CyberTeal,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                    }
+                                    Column {
+                                        Text(
+                                            text = pattern.displayName,
+                                            color = if (isSelected) CyberTeal else TextWhite,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = description,
+                                            color = TextMuted,
+                                            fontSize = 10.sp
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.width(8.dp))
+
+                                Surface(
+                                    onClick = {
+                                        if (isTestingThis) {
+                                            onStopVibration()
+                                        } else {
+                                            onTestPattern(pattern)
+                                        }
+                                    },
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = if (isTestingThis) CyberTeal.copy(alpha = 0.25f) else SurfaceCard,
+                                    border = BorderStroke(1.dp, if (isTestingThis) CyberTeal else SurfaceCardStroke)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = if (isTestingThis) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                                            contentDescription = if (isTestingThis) "Pause Vibration" else "Play Vibration",
+                                            tint = if (isTestingThis) CyberTeal else if (isSelected) CyberTeal else TextWhite,
+                                            modifier = Modifier.size(13.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = if (isTestingThis) "Pause" else "Play",
+                                            color = if (isTestingThis) CyberTeal else if (isSelected) CyberTeal else TextWhite,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            softWrap = false
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Button(
+                    onClick = onDismiss,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryTeal, contentColor = TextWhite)
+                ) {
+                    Text("Done", fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+// =========================================================================
+// 6. ADVANCED DIAGNOSTICS & TEST BENCH (COLLAPSIBLE)
+// =========================================================================
+
+@Composable
+fun ModernCollapsibleDiagnosticsCard(
+    expanded: Boolean,
+    onToggleExpanded: () -> Unit,
+    activeTestingPattern: AirHapticPattern?,
+    lastStatus: String,
+    onTestPattern: (AirHapticPattern) -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = SurfaceCard),
+        border = BorderStroke(1.dp, SurfaceCardStroke)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onToggleExpanded() },
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Rounded.Tune,
+                        contentDescription = null,
+                        tint = TextMuted,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Vibration Test Bench & Logs",
+                        color = TextWhite,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+
+                Icon(
+                    imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                    contentDescription = null,
+                    tint = TextMuted,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+
+            AnimatedVisibility(visible = expanded) {
+                Column(modifier = Modifier.padding(top = 14.dp)) {
+                    Text(
+                        text = "TEST VIBRATION BENCH",
+                        color = CyberTeal,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.5.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        val patterns = listOf(
+                            AirHapticPattern.SINGLE,
+                            AirHapticPattern.DOUBLE,
+                            AirHapticPattern.TRIPLE,
+                            AirHapticPattern.LONG_GAP,
+                            AirHapticPattern.URGENT
+                        )
+                        items(patterns) { pattern ->
+                            val isTesting = activeTestingPattern == pattern
+                            Button(
+                                onClick = { onTestPattern(pattern) },
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (isTesting) CyberTeal else SurfaceCardElevated,
+                                    contentColor = if (isTesting) DarkBg else TextWhite
+                                ),
+                                border = BorderStroke(1.dp, if (isTesting) CyberTeal else SurfaceCardStroke),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                modifier = Modifier.height(32.dp)
+                            ) {
+                                Text(
+                                    text = if (isTesting) "Pulsing..." else pattern.wireName,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Text(
+                        text = "LAST BLE LOG",
+                        color = CyberTeal,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.5.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = DarkBg,
+                        border = BorderStroke(1.dp, SurfaceCardStroke),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = if (lastStatus.isNotBlank()) lastStatus else "No BLE activity logged yet",
+                            color = TextWhite,
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.padding(10.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Text(
+                        text = "100% Zero-Accessibility • Background BLE GATTlink / DTLS 1.2",
+                        color = TextDim,
+                        fontSize = 10.sp
+                    )
+                }
+            }
+        }
+    }
+}
 
 @Composable
 fun BleScannerDialog(

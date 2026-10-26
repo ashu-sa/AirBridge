@@ -3,15 +3,16 @@ package com.vibebridge.fitbit
 enum class AirHapticPattern(
     val wireName: String,
     val displayName: String,
+    val restoreDelayMillis: Long = 450L,
     /** Delays between consecutive toggle/restore pulse groups (in milliseconds) */
-    val betweenGroupDelaysMillis: List<Long>
+    val betweenGroupDelaysMillis: List<Long> = emptyList()
 ) {
-    SINGLE("single", "Single Pulse", emptyList()),
-    DOUBLE("double", "Double Pulse", listOf(650L)),
-    TRIPLE("triple", "Triple Pulse", listOf(650L, 650L)),
-    LONG_GAP("long_gap", "Long Gap Double", listOf(1_800L)),
-    URGENT("urgent", "Urgent Alert (Calls)", listOf(450L, 1_350L, 450L)),
-    CONTINUOUS("continuous", "Continuous Ring", listOf(500L));
+    SINGLE("single", "Single Pulse (Notification)", 400L, emptyList()),
+    DOUBLE("double", "Double Pulse (Chat/DM)", 350L, listOf(300L)),
+    TRIPLE("triple", "Triple Pulse (Group Chat)", 300L, listOf(220L, 220L)),
+    LONG_GAP("long_gap", "Long Gap Double", 400L, listOf(1_000L)),
+    URGENT("urgent", "Urgent Alert (Phone Call)", 700L, listOf(400L, 400L)),
+    CONTINUOUS("continuous", "Continuous Ring (Incoming Call)", 700L, listOf(400L, 400L));
 
     val groupCount: Int
         get() = betweenGroupDelaysMillis.size + 1

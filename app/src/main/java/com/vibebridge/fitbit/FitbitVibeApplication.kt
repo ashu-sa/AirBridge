@@ -8,6 +8,10 @@ class FitbitVibeApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         Timber.plant(Timber.DebugTree())
+        io.reactivex.plugins.RxJavaPlugins.setErrorHandler { throwable ->
+            val actual = if (throwable is io.reactivex.exceptions.UndeliverableException) throwable.cause ?: throwable else throwable
+            Timber.w(actual, "Suppressed undeliverable RxJava exception: %s", actual.message)
+        }
         try {
             AirBridgeRuntime.ensureInitialized(this)
             Timber.i("Fitbit Vibe Application initialized successfully with GoldenGate runtime")

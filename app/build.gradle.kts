@@ -20,8 +20,14 @@ android {
     }
 
     buildTypes {
+        debug {
+            isDebuggable = false
+            signingConfig = signingConfigs.getByName("debug")
+        }
         release {
             isMinifyEnabled = false
+            isDebuggable = false
+            signingConfig = signingConfigs.getByName("debug")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
@@ -40,6 +46,7 @@ android {
     }
     packaging {
         jniLibs {
+            useLegacyPackaging = false
             pickFirsts.add("**/libgg.so")
             pickFirsts.add("**/libxp.so")
         }
@@ -70,4 +77,6 @@ dependencies {
     implementation("io.reactivex.rxjava2:rxandroid:2.1.1")
     implementation("com.jakewharton.timber:timber:4.7.1")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
+    testImplementation("junit:junit:4.13.2")
 }

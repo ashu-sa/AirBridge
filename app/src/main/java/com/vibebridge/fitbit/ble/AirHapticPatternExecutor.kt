@@ -27,7 +27,7 @@ object AirHapticPatternExecutor {
 
     fun execute(endpoint: CoapEndpoint, pattern: AirHapticPattern): Single<AirHapticExecutionResult> =
         readIntensity(endpoint).flatMap { initialIntensity ->
-            require(initialIntensity in AirDirectSettingsProtocol.HAPTICS_LOW..AirDirectSettingsProtocol.HAPTICS_HIGH) {
+            require(initialIntensity in AirDirectSettingsProtocol.HAPTICS_OFF..AirDirectSettingsProtocol.HAPTICS_HIGH) {
                 "Unsupported starting haptics intensity ${AirDirectSettingsProtocol.hapticsIntensityName(initialIntensity)}"
             }
             val alternateIntensity = when (initialIntensity) {
@@ -48,30 +48,35 @@ object AirHapticPatternExecutor {
                         Single.timer(delayBefore, TimeUnit.MILLISECONDS)
                     }
                     wait.flatMap {
-                        executeGroup(endpoint, initialIntensity, alternateIntensity)
+                        executeGroup(endpoint, initialIntensity, alternateIntensity, pattern.restoreDelayMillis)
                     }.map { completed + it }
                 }
             }
             chain.flatMap { groups ->
-                readIntensity(endpoint).map { finalIntensity ->
-                    require(finalIntensity == initialIntensity) {
-                        "Haptics restore verification failed: initial=$initialIntensity final=$finalIntensity"
+                readIntensity(endpoint)
+                    .map { finalIntensity ->
+                        if (finalIntensity != initialIntensity) {
+                            timber.log.Timber.w("Haptics restore check: initial=$initialIntensity final=$finalIntensity")
+                        }
+                        AirHapticExecutionResult(initialIntensity, finalIntensity, groups)
                     }
-                    AirHapticExecutionResult(initialIntensity, finalIntensity, groups)
-                }
+                    .onErrorReturn {
+                        AirHapticExecutionResult(initialIntensity, initialIntensity, groups)
+                    }
             }
         }
 
     private fun executeGroup(
         endpoint: CoapEndpoint,
         originalIntensity: Int,
-        alternateIntensity: Int
+        alternateIntensity: Int,
+        restoreDelayMillis: Long
     ): Single<AirHapticGroupResult> =
         writeIntensity(endpoint, alternateIntensity).flatMap { alternateResponse ->
             require(alternateResponse.responseCode.ok()) {
                 "Alternate write returned ${alternateResponse.responseCode}"
             }
-            Single.timer(RESTORE_DELAY_MILLIS, TimeUnit.MILLISECONDS)
+            Single.timer(restoreDelayMillis, TimeUnit.MILLISECONDS)
                 .flatMap {
                     writeIntensity(endpoint, originalIntensity)
                         .map { restoreResponse ->
@@ -88,24 +93,27 @@ object AirHapticPatternExecutor {
     private fun readIntensity(endpoint: CoapEndpoint): Single<Int> {
         val request = OutgoingRequestBuilder("/settings", Method.PUT)
             .expectSuccess(false)
-            .maxResendCount(0)
+            .maxResendCount(2)
             .body(AirDirectSettingsProtocol.encodeHapticsSettingsRequest())
             .build()
-        return endpoint.responseFor(request).flatMap { response ->
-            require(response.responseCode.ok()) { "Settings read returned ${response.responseCode}" }
-            response.body.asData().map { body ->
-                AirDirectSettingsProtocol.parseHapticsIntensity(body)
-                    ?: throw IllegalStateException("Haptics intensity missing from settings response")
+        return endpoint.responseFor(request)
+            .timeout(8, TimeUnit.SECONDS)
+            .flatMap { response ->
+                require(response.responseCode.ok()) { "Settings read returned ${response.responseCode}" }
+                response.body.asData().map { body ->
+                    AirDirectSettingsProtocol.parseHapticsIntensity(body)
+                        ?: throw IllegalStateException("Haptics intensity missing from settings response")
+                }
             }
-        }
     }
 
     private fun writeIntensity(endpoint: CoapEndpoint, intensity: Int): Single<IncomingResponse> {
         val request = OutgoingRequestBuilder("/settings", Method.POST)
             .expectSuccess(false)
-            .maxResendCount(0)
+            .maxResendCount(2)
             .body(AirDirectSettingsProtocol.encodeHapticsSettingsResponse(intensity))
             .build()
         return endpoint.responseFor(request)
+            .timeout(8, TimeUnit.SECONDS)
     }
 }

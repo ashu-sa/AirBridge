@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Top Band Strap -->
+    <path
+        android:fillColor="#1E293B"
+        android:pathData="M48,22 H60 V34 H48 Z" />
+
+    <!-- Bottom Band Strap -->
+    <path
+        android:fillColor="#1E293B"
+        android:pathData="M48,74 H60 V86 H48 Z" />
+
+    <!-- Fitness Tracker Capsule Body -->
+    <path
+        android:fillColor="#0B1320"
+        android:strokeColor="#00E5FF"
+        android:strokeWidth="2.2"
+        android:strokeLineJoin="round"
+        android:pathData="M46,38 C46,33 62,33 62,38 V70 C62,75 46,75 46,70 Z" />
+
+    <!-- Pulse / Heartbeat Activity Wave inside Capsule Screen -->
+    <path
+        android:strokeColor="#00E5FF"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M48,54 L51,54 L53,49 L55,59 L57,54 L60,54" />
+
+    <!-- Left Haptic Vibration Waves -->
+    <!-- Inner Cyan Wave -->
+    <path
+        android:strokeColor="#00E5FF"
+        android:strokeWidth="2.4"
+        android:strokeLineCap="round"
+        android:pathData="M40,46 C37,51 37,57 40,62" />
+
+    <!-- Middle Sky Blue Wave -->
+    <path
+        android:strokeColor="#38BDF8"
+        android:strokeWidth="2.4"
+        android:strokeLineCap="round"
+        android:pathData="M33,41 C28,49 28,59 33,67" />
+
+    <!-- Outer Flame Orange Wave -->
+    <path
+        android:strokeColor="#FF5722"
+        android:strokeWidth="2.6"
+        android:strokeLineCap="round"
+        android:pathData="M26,36 C20,47 20,61 26,72" />
+
+    <!-- Right Haptic Vibration Waves -->
+    <!-- Inner Cyan Wave -->
+    <path
+        android:strokeColor="#00E5FF"
+        android:strokeWidth="2.4"
+        android:strokeLineCap="round"
+        android:pathData="M68,46 C71,51 71,57 68,62" />
+
+    <!-- Middle Sky Blue Wave -->
+    <path
+        android:strokeColor="#38BDF8"
+        android:strokeWidth="2.4"
+        android:strokeLineCap="round"
+        android:pathData="M75,41 C80,49 80,59 75,67" />
+
+    <!-- Outer Flame Orange Wave -->
+    <path
+        android:strokeColor="#FF5722"
+        android:strokeWidth="2.6"
+        android:strokeLineCap="round"
+        android:pathData="M82,36 C88,47 88,61 82,72" />
+
+</vector>
