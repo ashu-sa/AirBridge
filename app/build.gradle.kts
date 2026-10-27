@@ -11,8 +11,8 @@ android {
         applicationId = "com.vibebridge.fitbit"
         minSdk = 26
         targetSdk = 34
-        versionCode = 6
-        versionName = "1.2.1"
+        versionCode = 7
+        versionName = "1.2.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {
@@ -20,6 +20,15 @@ android {
         }
     }
 
+    val releaseStore = System.getenv("AIRBRIDGE_KEYSTORE_FILE")
+    if (!releaseStore.isNullOrBlank()) {
+        signingConfigs.create("privateRelease") {
+            storeFile = file(releaseStore)
+            storePassword = System.getenv("AIRBRIDGE_KEYSTORE_PASSWORD")
+            keyAlias = System.getenv("AIRBRIDGE_KEY_ALIAS")
+            keyPassword = System.getenv("AIRBRIDGE_KEY_PASSWORD")
+        }
+    }
     buildTypes {
         debug {
             isDebuggable = true
@@ -28,7 +37,8 @@ android {
         release {
             isMinifyEnabled = false
             isDebuggable = false
-            // Public releases must be signed with a private release key, never the debug key.
+            // Private signing material is supplied locally and never committed.
+            if (!releaseStore.isNullOrBlank()) signingConfig = signingConfigs.getByName("privateRelease")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }

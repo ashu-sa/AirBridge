@@ -4,7 +4,7 @@
 
 AirBridge is an independent Android app for Google Fitbit Air. It sends distinct vibration patterns over Bluetooth so you can recognise an alert without checking your phone.
 
-[Download 1.2.1 preview APK](https://github.com/ashu-sa/AirBridge/releases/download/v1.2.1/AirBridge-1.2.1-preview.apk) · [Report an issue](https://github.com/ashu-sa/AirBridge/issues)
+[Download 1.2.2 APK](https://github.com/ashu-sa/AirBridge/releases/download/v1.2.2/AirBridge-1.2.2.apk) · [Report an issue](https://github.com/ashu-sa/AirBridge/issues)
 
 ## Features
 
@@ -28,7 +28,7 @@ AirBridge is an independent Android app for Google Fitbit Air. It sends distinct
 
 ## Get started
 
-1. Install the APK on an ARM64 phone running Android 8 or newer.
+1. Install the APK on an ARM64 phone running Android 8 or newer. If you have a debug preview installed, uninstall it first; its settings will be reset.
 2. Allow Bluetooth, notification access and phone permission for the features you want.
 3. Select your Fitbit Air and send a test vibration.
 4. Choose your call alerts, apps and optional schedule.
