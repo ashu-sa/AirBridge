@@ -4,7 +4,7 @@
 
 AirBridge is an independent Android app for Google Fitbit Air. It sends distinct vibration patterns over Bluetooth so you can recognise an alert without checking your phone.
 
-[Download 1.2.2 APK](https://github.com/ashu-sa/AirBridge/releases/download/v1.2.2/AirBridge-1.2.2.apk) · [Report an issue](https://github.com/ashu-sa/AirBridge/issues)
+[Download 1.2.2 APK](https://github.com/ashu-sa/AirBridge/releases/download/v1.2.2/AirBridge-1.2.2.apk) · [Installation options](docs/install.md) · [Report an issue](https://github.com/ashu-sa/AirBridge/issues)
 
 ## Features
 
@@ -39,7 +39,7 @@ AirBridge is an independent Android app for Google Fitbit Air. It sends distinct
 
 AirBridge's Bluetooth alerts work offline. No AirBridge cloud account, backend or analytics is used. Notification data is not uploaded; the listener does not extract message text, caller names or OTP codes. Settings stay on your phone. Notification access is sensitive, so enable only the features you need. AirBridge is not affiliated with Google or Fitbit.
 
-**Installation note:** Some phones block browser-downloaded APKs that request notification access. This is a Play Protect restriction; changing the FAQ or signing the APK does not remove it. See [Google's guidance](https://developers.google.com/android/play-protect/warning-dev-guidance).
+**Installation options:** Install the APK normally, or use the optional [USB/ADB guide](docs/install.md) if your phone blocks browser downloads. The full app keeps notification and app-call alerts. Phone security policies may still block installation; no universal workaround is promised.
 
 ## Build
 
