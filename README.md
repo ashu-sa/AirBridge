@@ -1,151 +1,110 @@
-# Air Bridge ⚡
+# AirBridge
 
-<p align="center">
-  <img src="app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml" width="96" height="96" alt="Air Bridge Logo" />
-</p>
+**Distinct wrist alerts for incoming calls and selected Android app notifications.**
 
-<p align="center">
-  <b>Instant, distinct wrist vibrations for incoming calls and notifications on Google Fitbit bands.</b><br>
-  <i>Pure BLE • 100% Offline • Zero Accessibility Services • Google Health Coexistence • Android 15 (16 KB) Ready</i>
-</p>
+AirBridge is an independent Android project that connects to a Fitbit band over Bluetooth Low Energy (BLE) and triggers vibration patterns for calls and selected notifications. It is designed to help you recognise different alerts without checking your phone.
 
-<p align="center">
-  <a href="https://github.com/ashu-sa/AirBridge/releases/latest">
-    <img src="https://img.shields.io/badge/Download-APK%20(v1.0.0)-00E5FF?style=for-the-badge&logo=android" alt="Download APK" />
-  </a>
-  <img src="https://img.shields.io/badge/Platform-Android%208.0%2B-3DDC84?style=for-the-badge&logo=android" alt="Platform Android 8.0+" />
-  <img src="https://img.shields.io/badge/Privacy-100%25%20Offline-00E676?style=for-the-badge" alt="100% Offline" />
-  <img src="https://img.shields.io/badge/Page%20Size-16%20KB%20Compatible-blueviolet?style=for-the-badge" alt="16 KB Page Size Compatible" />
-</p>
+The current implementation is built around the device identified in the app as **Fitbit Air**. Compatibility with other Fitbit models has not been established. AirBridge is not affiliated with or endorsed by Google or Fitbit.
 
----
+## Screenshots
 
-## 📱 Screenshots
+<table>
+  <tr>
+    <td align="center"><img src="screenshots/dashboard_main.png" width="260" alt="AirBridge dashboard showing connection status, incoming call controls and priority apps"><br>Dashboard and alert controls</td>
+    <td align="center"><img src="screenshots/pattern_selector.png" width="260" alt="Vibration pattern selector"><br>Vibration pattern selection</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="screenshots/reset_recovery.png" width="260" alt="Connection reset and recovery screen"><br>Connection recovery</td>
+    <td align="center"><img src="screenshots/faq_privacy.png" width="260" alt="In-app FAQ and privacy information"><br>In-app information</td>
+  </tr>
+</table>
 
-<p align="center">
-  <img src="screenshots/dashboard_main.png" width="23%" alt="Main Dashboard" />
-  &nbsp;&nbsp;
-  <img src="screenshots/pattern_selector.png" width="23%" alt="Pattern Selection & In-Dialog Audition" />
-  &nbsp;&nbsp;
-  <img src="screenshots/reset_recovery.png" width="23%" alt="Reset & Recovery Coexistence" />
-  &nbsp;&nbsp;
-  <img src="screenshots/faq_privacy.png" width="23%" alt="Architecture & Privacy FAQs" />
-</p>
+Screenshots show the existing interface. Performance, security and compatibility statements visible within them should not be treated as independent test results.
 
----
+## Features
 
-## 🚀 Key Features
+- **Incoming call alerts:** Choose Urgent or Continuous alert modes.
+- **Priority app rules:** Configure up to five app rules with individual vibration patterns.
+- **Pattern previews:** Try patterns on the band from the selection dialog.
+- **Connection tools:** Use band detection and reset controls when troubleshooting a connection.
+- **On-demand BLE sessions:** The service connects to deliver an alert and cleans up the connection afterward, with the aim of reducing interference with the companion app.
+- **No Accessibility Service:** The manifest does not request an Accessibility Service, overlay access or screen capture.
 
-* **⚡ Distinct Incoming Call Haptics**: Choose between **Urgent** *(intermittent high-frequency pulses)* and **Continuous** *(steady buzz)* so you never mistake a phone call for a simple message.
-* **🎯 Priority App Filtering**: Choose up to 5 priority apps (WhatsApp, Telegram, Messages, Gmail, Instagram, etc.) and assign custom vibration patterns to each (e.g., *Double Pulse* for WhatsApp direct messages, *Single Pulse* for regular updates).
-* **🎧 In-Dialog Vibration Audition**: When selecting a pattern, test and pause the vibration live on your wrist with dedicated **`[ ▶ Play ]`** / **`[ ⏸ Pause ]`** preview buttons.
-* **🤝 Google Health / Fitbit Coexistence**: Automatically releases Bluetooth in 1–2 seconds after pulsing, allowing Google Health to sync seamlessly in the background without connection collisions.
-* **🛡️ 100% Banking & UPI Safe**: Requires **NO Accessibility Services**, **NO screen capture**, and **NO overlay draw** permissions. Banking apps (Google Pay, PhonePe, Paytm, banking apps) detect zero risk and run completely uninterrupted.
-* **🔋 Ultra Battery Optimized**: Event-driven architecture with zero background polling. Uses `< 1%` phone battery per day and minimal BLE micro-joules on the band.
-* **🔄 Self-Healing Connection Recovery**: Built-in instant **`[ ↺ Reset ]`** and auto-detect scanner that flushes stale Android GATT caches, clears broken DTLS handshakes, and re-links in seconds if Bluetooth is dropped or out of range.
-* **📦 16 KB Page-Size Native Compatibility**: Fully aligned and compatible with Android 15's native 16 KB memory page architecture.
+Available patterns include Single, Double, Triple, Long Gap and Urgent. Continuous call mode repeats alert bursts within the service's configured limits.
 
----
+## How it works
 
-## 🛠️ How It Works (Architecture)
-
-```
-[ Incoming Call / Notification ]
-              │
-              ▼
-[ NotificationListenerService / TelephonyCallback ]
-              │  (Wakes phone via Partial WakeLock in < 10ms)
-              ▼
-[ AirBridgeOneShotService (Foreground Service) ]
-              │
-              ├── 1. Acquires Low-Latency BLE Connection
-              ├── 2. Establishes Gattlink Layer & DTLS 1.2 Handshake
-              ├── 3. Sends CoAP Haptic Request: coap://10.127.0.1/app/haptics/pulse
-              │      (Pattern: Single, Double, Triple, Long Gap, or Urgent)
-              │
-              ▼
-[ Fitbit Band Vibrates on Wrist ]
-              │
-              ▼
-[ Immediate Disconnect & Resource Release (< 1.5s) ]
-              │
-              ▼
-[ Google Health Sync Remains Active & Free ]
+```text
+Incoming call or selected notification
+                  |
+                  v
+Android receiver / notification listener
+                  |
+                  v
+Foreground BLE service
+                  |
+                  v
+Golden Gate / Gattlink / DTLS connection
+                  |
+                  v
+CoAP /settings requests to change haptic intensity
+                  |
+                  v
+Restore original intensity and clean up the connection
 ```
 
----
+The current implementation generates patterns by changing the band's haptic intensity setting and attempting to restore its original value. It does not use a dedicated `/app/haptics/pulse` endpoint. Interrupted connections can affect delivery or restoration; check the band's vibration setting if a session fails.
 
-## 📥 Download & Installation
+## Requirements and compatibility
 
-### Option 1: Direct APK Download
-1. Download the latest **`AirBridge-v1.0.0.apk`** from [GitHub Releases](https://github.com/ashu-sa/AirBridge/releases/latest).
-2. On your Android phone, tap the downloaded file and select **Install** *(allow "Install from Unknown Sources" if prompted)*.
-3. Open **Air Bridge** and grant the 3 essential permissions:
-   - **Bluetooth**: To connect to your Fitbit band.
-   - **Phone**: To detect incoming call ringing states.
-   - **Notification Listener**: To detect alerts from your selected priority apps.
-4. Tap **Auto-Detect Band** or select your Fitbit band from the list.
+- Android 8.0 or later, as declared by the project's minimum SDK.
+- An ARM64 Android device; the current build configuration includes `arm64-v8a` native libraries.
+- Bluetooth enabled and a compatible band nearby.
+- Notification access for app alerts and phone-state permission for incoming call detection.
 
-### Option 2: Build from Source
-Ensure you have the Android SDK (API 34) and JDK 17 installed:
+The project currently compiles and targets Android API 34. This alone does not establish Android 15 support or 16 KB native page-size compatibility. A verified device and firmware compatibility list is not yet documented.
+
+## Build and setup
+
+Use JDK 17 and an Android SDK installation with API 34. The repository includes local AAR dependencies in `app/libs`.
 
 ```bash
 git clone https://github.com/ashu-sa/AirBridge.git
 cd AirBridge
 ./gradlew assembleDebug
+```
 
-# Install directly to your connected Android phone via ADB:
+The debug APK is generated at `app/build/outputs/apk/debug/app-debug.apk`.
+
+To install it on a connected device with ADB:
+
+```bash
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
----
+Open AirBridge, grant the permissions for the features you want to use, detect or select the band, and test a vibration pattern before enabling call and notification alerts. Permission prompts vary by Android version; older versions may require location permission for BLE scanning. Background delivery can also depend on your phone's battery settings.
 
-## 🎛️ Vibration Pattern Specs
+Check [GitHub Releases](https://github.com/ashu-sa/AirBridge/releases) for published builds. If no APK is available, build from source using the steps above.
 
-| Pattern Name | Wire Protocol Code | Haptic Description | Recommended Use Case |
-| :--- | :---: | :--- | :--- |
-| **Urgent Alert** | `URGENT` | 4 rapid, high-intensity pulses | Incoming phone calls, critical alerts |
-| **Continuous Ring** | `URGENT` (pulsed loop) | Persistent repeating pulse buzz | Phone call ringing until answered/rejected |
-| **Double Pulse** | `DOUBLE` | 2 crisp, distinct pulses | Direct messages (WhatsApp, Telegram) |
-| **Single Pulse** | `SINGLE` | 1 subtle, clean pulse | Casual notifications, news, system alerts |
-| **Triple Pulse** | `TRIPLE` | 3 rhythmic pulses | Group chats, calendar events |
-| **Long Gap** | `LONG_GAP` | 2 widely-spaced pulses | Reminders, to-dos, timers |
+## Permissions and privacy
 
----
+AirBridge uses notification access to process notifications for configured apps and phone-state access to detect ringing. Notification access is sensitive: Android grants the listener broader visibility than the app rules used to filter alerts.
 
-## ❓ Frequently Asked Questions
+The manifest also declares Bluetooth, location, foreground-service, wake-lock, notification, installed-app visibility, network and battery-optimisation permissions. Installed-app visibility supports app selection; the BLE stack uses network-style communication internally.
 
-### Does it vibrate when my phone is locked?
-**Yes, 100%.** AirBridge runs with Android background partial wake-locks. When a call or notification arrives while your phone is locked or in your pocket, AirBridge connects directly via BLE and vibrates your Fitbit instantly without waking or unlocking your screen.
+The alert path is designed around local phone-to-band communication. A permission list or source review alone is not proof of zero outbound traffic or a security audit. No universal guarantee is made about banking-app compatibility.
 
-### Why does Google Health say "Synced X min ago"?
-This is Google Health's normal battery-saver schedule. It syncs in 15–30 minute background intervals. AirBridge releases the Bluetooth connection immediately after pulsing, ensuring Google Health sync is never blocked.
+## Current limitations
 
-### Does this app affect UPI or Banking apps?
-**Not at all.** Unlike older notification tools, AirBridge requires **NO Accessibility Service**, **NO overlay permissions**, and **NO screen capture**. Android banking and financial apps detect zero security risks.
+- Alert latency and battery consumption have not been documented with reproducible benchmarks.
+- Connection cleanup is intended to support coexistence with the companion app; uninterrupted sync is not guaranteed.
+- Background restrictions, firmware changes and Bluetooth interruptions may affect alerts.
+- Source availability does not establish compatibility across Fitbit models.
 
-### What if connection fails or Bluetooth is interrupted?
-If Bluetooth drops or your band was out of range, tap **`[ ↺ Reset ]`** or **`[ 🔍 Auto-Find Band ]`** at the top of the dashboard. AirBridge flushes stuck Android GATT caches, clears stale DTLS handshakes, and re-links automatically.
+## Feedback
 
----
+Bug reports and compatibility reports are welcome through [GitHub Issues](https://github.com/ashu-sa/AirBridge/issues). Include your phone model, Android version, band model and firmware, reproduction steps, and expected versus actual behaviour. Remove personal notification content and device identifiers from logs before sharing them.
 
-## 🔒 Security & Privacy
+## License
 
-* **100% Offline & Private**: The app performs zero external telemetry, cloud sync, or remote tracking. All notification and call processing occurs strictly on your device.
-* **Local Loopback BLE Stack**: The `INTERNET` permission in the manifest is utilized exclusively to bind internal GoldenGate DTLS 1.2 / CoAP network sockets to local loopback (`10.127.0.1` / `127.0.0.1`) for the Bluetooth Gattlink bridge. No outbound internet traffic is ever generated.
-* **Zero Accessibility & Zero Screen Capture**: No Accessibility Service, overlay draw, or screen scraping required. 100% compatible with Android UPI and banking security guidelines.
-* **Open Source**: Full transparency under the Apache 2.0 License.
-
----
-
-## 📄 License
-
-```
-Copyright 2026 Ashutosh Sahoo
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-```
+The existing README declares Apache License 2.0, copyright 2026 Ashutosh Sahoo. See the [Apache 2.0 license terms](https://www.apache.org/licenses/LICENSE-2.0). Bundled third-party libraries remain subject to their respective licenses.
