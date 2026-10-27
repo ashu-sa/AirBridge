@@ -1,6 +1,7 @@
 package com.vibebridge.fitbit.ble
 
 import android.content.Context
+import com.vibebridge.fitbit.BuildConfig
 import com.fitbit.goldengate.GoldenGateConnectionManagerModule
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -14,7 +15,7 @@ object AirBridgeRuntime {
         try {
             GoldenGateConnectionManagerModule.init(
                 context.applicationContext,
-                loggingEnabled = true,
+                loggingEnabled = BuildConfig.DEBUG,
                 isBleCentralRole = true
             )
             initialized.set(true)

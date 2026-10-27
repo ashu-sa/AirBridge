@@ -4,7 +4,6 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.telephony.TelephonyManager
-import com.vibebridge.fitbit.AirHapticPattern
 import com.vibebridge.fitbit.ble.AirBridgeDeviceSettings
 import com.vibebridge.fitbit.service.AirBridgeOneShotService
 import com.vibebridge.fitbit.service.AirNotificationTrigger
@@ -18,38 +17,6 @@ class CallReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action
-        if (action == ACTION_CANCEL_CALL || action == "com.vibebridge.fitbit.CANCEL_CALL") {
-            Timber.i("Cancel call intent received; stopping active call alert.")
-            AirBridgeOneShotService.stopAll(context)
-            return
-        }
-        if (action == ACTION_TEST_CALL) {
-            val pattern = AirBridgeDeviceSettings.loadCallPattern(context)
-            Timber.i("Test call intent received; enqueuing BLE alert: %s", pattern.displayName)
-            val trigger = AirNotificationTrigger(
-                sourcePackage = "Manual Call Test",
-                pattern = pattern,
-                isCall = true,
-                isContinuousCall = false
-            )
-            AirBridgeOneShotService.enqueue(context, trigger)
-            return
-        }
-
-        if (action == ACTION_TEST_PULSE) {
-            val patternStr = intent.getStringExtra("pattern") ?: "single"
-            val pattern = AirHapticPattern.fromWireName(patternStr) ?: AirHapticPattern.SINGLE
-            Timber.i("Test pulse intent received; enqueuing pattern: %s", pattern.displayName)
-            val trigger = AirNotificationTrigger(
-                sourcePackage = "Manual Test",
-                pattern = pattern,
-                isCall = false,
-                isContinuousCall = false
-            )
-            AirBridgeOneShotService.enqueue(context, trigger)
-            return
-        }
-
         if (action != TelephonyManager.ACTION_PHONE_STATE_CHANGED) return
 
         val state = intent.getStringExtra(TelephonyManager.EXTRA_STATE) ?: return
@@ -83,9 +50,4 @@ class CallReceiver : BroadcastReceiver() {
         }
     }
 
-    companion object {
-        const val ACTION_TEST_CALL = "com.vibebridge.fitbit.TEST_CALL"
-        const val ACTION_TEST_PULSE = "com.vibebridge.fitbit.TEST_PULSE"
-        const val ACTION_CANCEL_CALL = "com.vibebridge.fitbit.CANCEL_CALL"
-    }
 }

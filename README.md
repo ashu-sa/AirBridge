@@ -19,13 +19,13 @@ The current implementation is built around the device identified in the app as *
   </tr>
 </table>
 
-Screenshots show the existing interface. Performance, security and compatibility statements visible within them should not be treated as independent test results.
+Screenshots show the updated Android interface. The Saved badge identifies the chosen band; successful alert delivery is reported separately under Latest activity.
 
 ## Features
 
 - **Incoming call alerts:** Choose Urgent or Continuous alert modes.
 - **Priority app rules:** Configure up to five app rules with individual vibration patterns.
-- **Pattern previews:** Try patterns on the band from the selection dialog.
+- **Pattern previews:** Try patterns on the band from the selection dialog, or send a single test vibration directly from the band card.
 - **Connection tools:** Use band detection and reset controls when troubleshooting a connection.
 - **On-demand BLE sessions:** The service connects to deliver an alert and cleans up the connection afterward, with the aim of reducing interference with the companion app.
 - **No Accessibility Service:** The manifest does not request an Accessibility Service, overlay access or screen capture.
@@ -90,9 +90,15 @@ Check [GitHub Releases](https://github.com/ashu-sa/AirBridge/releases) for publi
 
 AirBridge uses notification access to process notifications for configured apps and phone-state access to detect ringing. Notification access is sensitive: Android grants the listener broader visibility than the app rules used to filter alerts.
 
-The manifest also declares Bluetooth, location, foreground-service, wake-lock, notification, installed-app visibility, network and battery-optimisation permissions. Installed-app visibility supports app selection; the BLE stack uses network-style communication internally.
+The manifest also declares Bluetooth, foreground-service, wake-lock, notification, network and battery-optimisation permissions. Location permission is limited to Android 11 and earlier for BLE scanning. App discovery is scoped to launcher apps and named companion or default apps rather than requesting visibility of every installed package. The BLE stack uses network-style communication internally.
 
 The alert path is designed around local phone-to-band communication. A permission list or source review alone is not proof of zero outbound traffic or a security audit. No universal guarantee is made about banking-app compatibility.
+
+## Development validation
+
+Version 1.0.1 has been built and checked with 14 unit tests and Android lint (zero errors; existing warnings remain). On a Samsung SM-M346B running Android 16, a manual single-pulse test completed and the band setting was read back as LOW. The updated app also rejects the old external test-broadcast commands.
+
+This is limited development testing, not a compatibility certification. An earlier secure-session timeout was observed during testing. Long-running background delivery, real incoming calls, battery use and companion-app coexistence still need broader testing. Public releases require a private release signing key; the project no longer signs release builds with the debug key.
 
 ## Current limitations
 

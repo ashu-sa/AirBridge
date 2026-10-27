@@ -11,8 +11,6 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings
 import android.widget.Toast
@@ -22,6 +20,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import com.vibebridge.fitbit.ble.AirBridgeDeviceSettings
 import com.vibebridge.fitbit.ble.BleScanner
 import com.vibebridge.fitbit.service.AirBridgeOneShotService
@@ -45,7 +44,6 @@ class MainActivity : ComponentActivity() {
     private var notificationRules by mutableStateOf<List<AirNotificationRule>>(emptyList())
 
     private lateinit var bleScanner: BleScanner
-    private val testAutoStopHandler = Handler(Looper.getMainLooper())
 
     private val statusReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -115,27 +113,24 @@ class MainActivity : ComponentActivity() {
                         Toast.makeText(this, "Reset to 5 default apps", Toast.LENGTH_SHORT).show()
                     },
                     onSelectDevice = { address, name ->
-                        AirBridgeDeviceSettings.saveAddress(this, address, name)
-                        pairedAddress = address
-                        pairedName = name
-                        Toast.makeText(this, "Paired with $name ($address)", Toast.LENGTH_SHORT).show()
+                        if (!BluetoothAdapter.checkBluetoothAddress(address)) {
+                            Toast.makeText(this, "Enter a valid Bluetooth address", Toast.LENGTH_SHORT).show()
+                        } else {
+                            AirBridgeDeviceSettings.saveAddress(this, address, name)
+                            pairedAddress = address
+                            pairedName = name
+                            Toast.makeText(this, "Selected $name. Test an alert to check the connection.", Toast.LENGTH_SHORT).show()
+                        }
                     },
                     onTestCallAlert = {
                         val trigger = AirNotificationTrigger("Manual Call Test", callPattern, isCall = true, isContinuousCall = false)
                         isVibratingActive = true
                         val ok = AirBridgeOneShotService.enqueue(this, trigger)
                         if (ok) {
-                            Toast.makeText(this, "Pulsing band via BLE [${callPattern.displayName}]", Toast.LENGTH_SHORT).show()
-                            testAutoStopHandler.removeCallbacksAndMessages(null)
-                            testAutoStopHandler.postDelayed({
-                                if (AirBridgeOneShotService.isVibrating) {
-                                    AirBridgeOneShotService.stopAll(this@MainActivity)
-                                    isVibratingActive = false
-                                }
-                            }, 14_000L)
+                            Toast.makeText(this, "Starting test: ${callPattern.displayName}", Toast.LENGTH_SHORT).show()
                         } else {
                             isVibratingActive = false
-                            Toast.makeText(this, "Failed to start BLE service", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(this, AirBridgeDeviceSettings.loadLastStatus(this), Toast.LENGTH_SHORT).show()
                         }
                     },
                     onTestPattern = { pattern ->
@@ -143,17 +138,15 @@ class MainActivity : ComponentActivity() {
                         isVibratingActive = true
                         val ok = AirBridgeOneShotService.enqueue(this, trigger)
                         if (ok) {
-                            Toast.makeText(this, "Pulsing band: ${pattern.displayName}", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(this, "Starting test: ${pattern.displayName}", Toast.LENGTH_SHORT).show()
                         } else {
                             isVibratingActive = false
-                            Toast.makeText(this, "Failed to start BLE service", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(this, AirBridgeDeviceSettings.loadLastStatus(this), Toast.LENGTH_SHORT).show()
                         }
                     },
                     onStopVibration = {
-                        testAutoStopHandler.removeCallbacksAndMessages(null)
                         AirBridgeOneShotService.stopAll(this)
-                        isVibratingActive = false
-                        Toast.makeText(this, "Vibration stopped", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this, "Finishing the current alert before stopping", Toast.LENGTH_SHORT).show()
                     },
                     onRequestPhonePerm = { requestPhonePermissions() },
                     onRequestBluetoothPerm = { requestBluetoothPermissions() },
@@ -164,23 +157,21 @@ class MainActivity : ComponentActivity() {
                         val fitbitIntent = packageManager.getLaunchIntentForPackage("com.fitbit.FitbitMobile")
                         if (fitbitIntent != null) {
                             startActivity(fitbitIntent)
-                            Toast.makeText(this, "BLE connection cleared! Opening Google Health...", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(this, "Opening companion app. Pull down there to sync.", Toast.LENGTH_SHORT).show()
                         } else {
-                            Toast.makeText(this, "Bluetooth link released cleanly for background sync", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(this, "Companion app not found. You can open it manually.", Toast.LENGTH_SHORT).show()
                         }
                     },
                     onResetConnection = {
                         AirBridgeOneShotService.resetConnection(this)
-                        lastStatusText = "Connection reset • All caches cleared"
-                        Toast.makeText(this, "BLE connection & caches reset clean", Toast.LENGTH_SHORT).show()
-                    },
-                    onAutoDetectBand = {
-                        startAutoDetectBand()
+                        Toast.makeText(this, "Reset requested. Any current alert will finish first.", Toast.LENGTH_SHORT).show()
                     },
                     onEnableBluetooth = {
-                        val enableBtIntent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
-                        runCatching { startActivity(enableBtIntent) }.onFailure {
-                            startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                            checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+                            requestBluetoothPermissions()
+                        } else {
+                            startActivity(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
                         }
                     }
                 )
@@ -188,43 +179,8 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun startAutoDetectBand() {
-        AirBridgeOneShotService.resetConnection(this)
-        Toast.makeText(this, "Scanning for nearby Fitbit band...", Toast.LENGTH_SHORT).show()
-        lastStatusText = "Auto-detecting nearby Fitbit band..."
-        bleScanner.startScan()
-
-        val autoDetectHandler = Handler(Looper.getMainLooper())
-        val checkRunnable = object : Runnable {
-            var attempts = 0
-            override fun run() {
-                attempts++
-                val foundFitbit = bleScanner.devices.value.firstOrNull { it.isFitbit }
-                if (foundFitbit != null) {
-                    bleScanner.stopScan()
-                    AirBridgeDeviceSettings.saveAddress(this@MainActivity, foundFitbit.address, foundFitbit.name)
-                    pairedAddress = foundFitbit.address
-                    pairedName = foundFitbit.name
-                    lastStatusText = "Auto-paired with ${foundFitbit.name} (${foundFitbit.address})"
-                    AirBridgeDeviceSettings.saveLastStatus(this@MainActivity, lastStatusText)
-                    Toast.makeText(this@MainActivity, "Connected to ${foundFitbit.name}!", Toast.LENGTH_SHORT).show()
-                } else if (attempts < 14) {
-                    autoDetectHandler.postDelayed(this, 500L)
-                } else {
-                    bleScanner.stopScan()
-                    Toast.makeText(this@MainActivity, "No Fitbit found nearby. Tap band screen to wake it.", Toast.LENGTH_LONG).show()
-                }
-            }
-        }
-        autoDetectHandler.postDelayed(checkRunnable, 500L)
-    }
-
     private fun requestPhonePermissions() {
-        val perms = mutableListOf(Manifest.permission.READ_PHONE_STATE)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            perms.add(Manifest.permission.READ_CALL_LOG)
-        }
-        requestPermissions(perms.toTypedArray(), REQ_PHONE_PERMS)
+        requestPermissions(arrayOf(Manifest.permission.READ_PHONE_STATE), REQ_PHONE_PERMS)
     }
 
     private fun requestBluetoothPermissions() {
@@ -232,9 +188,10 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             perms.add(Manifest.permission.BLUETOOTH_SCAN)
             perms.add(Manifest.permission.BLUETOOTH_CONNECT)
+        } else {
+            perms.add(Manifest.permission.ACCESS_FINE_LOCATION)
+            perms.add(Manifest.permission.ACCESS_COARSE_LOCATION)
         }
-        perms.add(Manifest.permission.ACCESS_FINE_LOCATION)
-        perms.add(Manifest.permission.ACCESS_COARSE_LOCATION)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             perms.add(Manifest.permission.POST_NOTIFICATIONS)
         }
@@ -258,11 +215,7 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         val filter = IntentFilter(AirBridgeOneShotService.ACTION_STATUS_UPDATED)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(statusReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-        } else {
-            registerReceiver(statusReceiver, filter)
-        }
+        ContextCompat.registerReceiver(this, statusReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
     }
 
     override fun onStop() {

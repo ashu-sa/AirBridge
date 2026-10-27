@@ -14,11 +14,11 @@ object AirBridgeDeviceSettings {
     private const val KEY_NOTIFICATION_ALERTS_ENABLED = "notification_alerts_enabled"
 
     fun saveDevice(context: Context, device: BluetoothDevice) {
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .edit()
-            .putString(KEY_ADDRESS, device.address)
-            .putString(KEY_NAME, device.name ?: "Google Fitbit Air")
-            .apply()
+        try {
+            saveAddress(context, device.address, device.name ?: "Fitbit band")
+        } catch (_: SecurityException) {
+            saveLastStatus(context, "Allow Nearby devices before selecting a band.")
+        }
     }
 
     fun saveAddress(context: Context, address: String, name: String = "Google Fitbit Air") {

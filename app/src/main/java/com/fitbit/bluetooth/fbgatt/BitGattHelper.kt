@@ -3,7 +3,10 @@ package com.fitbit.bluetooth.fbgatt
 object BitGattHelper {
     fun clearConnections(fitbitGatt: FitbitGatt) {
         runCatching {
-            fitbitGatt.clearConnectionsMap()
+            fitbitGatt.connectionMap.values.toList().forEach { connection ->
+                runCatching { connection.close() }
+            }
+            fitbitGatt.connectionMap.clear()
         }
     }
 

@@ -20,6 +20,8 @@ data class AirHapticExecutionResult(
     val groups: List<AirHapticGroupResult>
 )
 
+class HapticsRestoreException(message: String, cause: Throwable? = null) : IllegalStateException(message, cause)
+
 /** Executes bounded pattern groups and verifies that the original setting was restored. */
 object AirHapticPatternExecutor {
     private const val RESTORE_DELAY_MILLIS = 800L
@@ -56,12 +58,12 @@ object AirHapticPatternExecutor {
                 readIntensity(endpoint)
                     .map { finalIntensity ->
                         if (finalIntensity != initialIntensity) {
-                            timber.log.Timber.w("Haptics restore check: initial=$initialIntensity final=$finalIntensity")
+                            throw HapticsRestoreException("Band vibration setting was not restored. Check it before retrying.")
                         }
                         AirHapticExecutionResult(initialIntensity, finalIntensity, groups)
                     }
-                    .onErrorReturn {
-                        AirHapticExecutionResult(initialIntensity, initialIntensity, groups)
+                    .onErrorResumeNext { error ->
+                        Single.error(HapticsRestoreException("Unable to verify the restored band vibration setting.", error))
                     }
             }
         }
@@ -86,6 +88,9 @@ object AirHapticPatternExecutor {
                             restoreResponse
                         }
                         .retry(RESTORE_RETRIES.toLong())
+                        .onErrorResumeNext { error ->
+                            Single.error(HapticsRestoreException("Band vibration setting could not be restored.", error))
+                        }
                 }
                 .map { restoreResponse -> AirHapticGroupResult(alternateResponse, restoreResponse) }
         }

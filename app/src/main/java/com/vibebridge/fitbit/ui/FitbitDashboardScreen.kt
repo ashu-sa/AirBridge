@@ -1,5 +1,6 @@
 package com.vibebridge.fitbit.ui
 
+import android.bluetooth.BluetoothAdapter
 import android.content.Context
 import android.graphics.drawable.Drawable
 import android.os.Handler
@@ -99,12 +100,21 @@ fun FitbitDashboardScreen(
         }
     }
 
-    val isArmed = hasPhonePerm && hasBluetoothPerm
+    val isArmed = hasBluetoothPerm && pairedDeviceAddress.isNotBlank()
+    val openScanner = {
+        if (hasBluetoothPerm) {
+            showScannerDialog = true
+            bleScanner.startScan()
+        } else {
+            onRequestBluetoothPerm()
+        }
+    }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(DarkBg)
+            .windowInsetsPadding(WindowInsets.safeDrawing)
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 18.dp, vertical = 20.dp)
     ) {
@@ -112,15 +122,28 @@ fun FitbitDashboardScreen(
         // ==========================================
         // 1. MINIMALIST TOP HEADER & STATUS
         // ==========================================
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(bottom = 22.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(shape = RoundedCornerShape(16.dp), color = CyberTeal.copy(alpha = 0.12f)) {
+                Icon(Icons.Rounded.Waves, contentDescription = null, tint = CyberTeal,
+                    modifier = Modifier.padding(12.dp).size(28.dp))
+            }
+            Spacer(Modifier.width(12.dp))
+            Column {
+                Text("AirBridge", color = TextWhite, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+                Text("Your alerts, a little closer.", color = TextMuted, fontSize = 13.sp)
+            }
+        }
+
         ModernHeaderCard(
             isArmed = isArmed,
             deviceName = pairedDeviceName,
             deviceAddress = pairedDeviceAddress,
-            onOpenScanner = {
-                showScannerDialog = true
-                bleScanner.startScan()
-            },
-            onResetConnection = onResetConnection,
+            onOpenScanner = openScanner,
+            onTestBand = { onTestPattern(AirHapticPattern.SINGLE) },
+            isTesting = isTestingVibration,
             onOpenManual = {
                 manualAddressInput = pairedDeviceAddress
                 manualNameInput = pairedDeviceName
@@ -135,7 +158,7 @@ fun FitbitDashboardScreen(
             lastStatus = lastStatus,
             onForceSyncHealth = onForceSyncHealth,
             onResetConnection = onResetConnection,
-            onAutoDetectBand = onAutoDetectBand,
+            onAutoDetectBand = openScanner,
             onEnableBluetooth = onEnableBluetooth
         )
 
@@ -217,6 +240,9 @@ fun FitbitDashboardScreen(
         // 5. PRIVACY & HOW IT WORKS (INLINE ACCORDION)
         // ==========================================
         ModernPrivacyAccordionCard()
+        Text("Independent project • Not affiliated with Google or Fitbit",
+            color = TextMuted, fontSize = 11.sp, lineHeight = 16.sp,
+            modifier = Modifier.padding(top = 20.dp, start = 4.dp, end = 4.dp))
 
         Spacer(modifier = Modifier.height(28.dp))
     }
@@ -325,7 +351,8 @@ fun FitbitDashboardScreen(
                         value = manualAddressInput,
                         onValueChange = { manualAddressInput = it.uppercase() },
                         label = { Text("Bluetooth MAC Address") },
-                        placeholder = { Text("e.g. 5E:75:11:59:E2:43") },
+                        placeholder = { Text("AA:BB:CC:DD:EE:FF") },
+                        isError = manualAddressInput.isNotBlank() && !BluetoothAdapter.checkBluetoothAddress(manualAddressInput.trim()),
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedTextColor = TextWhite,
                             unfocusedTextColor = TextWhite,
@@ -343,9 +370,11 @@ fun FitbitDashboardScreen(
                     ) {
                         Button(
                             onClick = {
-                                if (manualAddressInput.isNotBlank()) {
+                                if (BluetoothAdapter.checkBluetoothAddress(manualAddressInput.trim())) {
                                     onSelectDevice(manualAddressInput.trim(), manualNameInput.trim())
                                     showManualAddressDialog = false
+                                } else {
+                                    Toast.makeText(context, "Enter six pairs of letters or digits separated by colons", Toast.LENGTH_LONG).show()
                                 }
                             },
                             modifier = Modifier.weight(1f),
@@ -380,114 +409,50 @@ fun ModernHeaderCard(
     deviceName: String,
     deviceAddress: String,
     onOpenScanner: () -> Unit,
-    onResetConnection: () -> Unit = {},
+    onTestBand: () -> Unit,
+    isTesting: Boolean,
     onOpenManual: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(containerColor = SurfaceCard),
-        border = BorderStroke(1.dp, if (isArmed) CyberTeal.copy(alpha = 0.35f) else WarningAmber.copy(alpha = 0.35f))
+        border = BorderStroke(1.dp, SurfaceCardStroke)
     ) {
-        Column(modifier = Modifier.padding(18.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(8.dp)
-                                .clip(CircleShape)
-                                .background(if (isArmed) NeonEmerald else WarningAmber)
-                        )
-                        Spacer(modifier = Modifier.width(7.dp))
-                        Text(
-                            text = if (isArmed) "CONNECTED • DIRECT BLE" else "STANDBY • CHECK PERMISSIONS",
-                            color = if (isArmed) EmeraldText else AmberText,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.5.sp
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = deviceName,
-                        color = TextWhite,
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.Watch, contentDescription = null, tint = CyberTeal, modifier = Modifier.size(22.dp))
+                Spacer(Modifier.width(10.dp))
+                Text("YOUR BAND", color = TextMuted, fontSize = 11.sp, letterSpacing = 1.sp, modifier = Modifier.weight(1f))
+                Text(if (isArmed) "Saved" else "Setup needed", color = if (isArmed) EmeraldText else AmberText, fontSize = 12.sp)
+            }
+            Text(if (deviceAddress.isBlank()) "Choose your Fitbit" else deviceName.ifBlank { "Fitbit band" },
+                color = TextWhite, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
+            Text(if (isArmed) "Connects when an alert arrives. Test below to check delivery."
+                else "Allow Bluetooth access and select a nearby band to get started.",
+                color = TextMuted, fontSize = 12.sp, lineHeight = 18.sp)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(onClick = onOpenScanner, modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = CyberTeal, contentColor = DarkBg)) {
+                    Icon(Icons.Rounded.BluetoothSearching, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(if (deviceAddress.isBlank()) "Find band" else "Change band", fontSize = 13.sp)
                 }
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    // Quick Reset Button
-                    Surface(
-                        onClick = onResetConnection,
-                        shape = RoundedCornerShape(12.dp),
-                        color = SurfaceCardElevated,
-                        border = BorderStroke(1.dp, SurfaceCardStroke)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.RestartAlt,
-                                contentDescription = "Reset",
-                                tint = CyberTeal,
-                                modifier = Modifier.size(15.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "Reset",
-                                color = CyberTeal,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                    }
-
-                    // Bluetooth pill button
-                    Surface(
-                        onClick = onOpenScanner,
-                        shape = RoundedCornerShape(12.dp),
-                        color = SurfaceCardElevated,
-                        border = BorderStroke(1.dp, SurfaceCardStroke)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Bluetooth,
-                                contentDescription = null,
-                                tint = CyberTeal,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = deviceAddress.takeLast(8),
-                                color = TextWhite,
-                                fontSize = 11.sp,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                    }
+                OutlinedButton(onClick = onOpenManual, modifier = Modifier.heightIn(min = 48.dp),
+                    shape = RoundedCornerShape(12.dp), border = BorderStroke(1.dp, SurfaceCardStroke)) {
+                    Text("Manual setup", color = TextMuted, fontSize = 12.sp)
+                }
+            }
+            if (isArmed) {
+                TextButton(onClick = onTestBand, enabled = !isTesting,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                    Text(if (isTesting) "Sending test…" else "Send a test vibration", fontSize = 13.sp)
                 }
             }
         }
     }
 }
-
-// =========================================================================
-// COEXISTENCE SYNC & ERROR RECOVERY BANNER
-// =========================================================================
 
 @Composable
 fun CoexistenceSyncBanner(
@@ -497,170 +462,35 @@ fun CoexistenceSyncBanner(
     onAutoDetectBand: () -> Unit = {},
     onEnableBluetooth: () -> Unit = {}
 ) {
-    val isError = lastStatus.contains("Error", ignoreCase = true) ||
-            lastStatus.contains("timeout", ignoreCase = true) ||
-            lastStatus.contains("disabled", ignoreCase = true) ||
-            lastStatus.contains("glitch", ignoreCase = true) ||
-            lastStatus.contains("interrupted", ignoreCase = true) ||
-            lastStatus.contains("failed", ignoreCase = true)
-    val isBtDisabled = lastStatus.contains("Bluetooth is turned off", ignoreCase = true) ||
-            lastStatus.contains("Bluetooth is disabled", ignoreCase = true)
-
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
-        color = if (isError) AmberBg.copy(alpha = 0.25f) else SurfaceCard,
-        border = BorderStroke(1.dp, if (isError) WarningAmber.copy(alpha = 0.5f) else SurfaceCardStroke)
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(8.dp)
-                            .background(if (isError) WarningAmber else NeonEmerald, shape = CircleShape)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = if (isError) "Connection Interrupted" else "Google Health Coexistence",
-                        color = if (isError) AmberText else Color.White,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    // Quick Reset pill
-                    Surface(
-                        onClick = onResetConnection,
-                        shape = RoundedCornerShape(8.dp),
-                        color = if (isError) WarningAmber.copy(alpha = 0.2f) else SurfaceCardElevated,
-                        border = BorderStroke(1.dp, if (isError) WarningAmber.copy(alpha = 0.4f) else SurfaceCardStroke)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.RestartAlt,
-                                contentDescription = "Reset",
-                                tint = if (isError) WarningAmber else CyberTeal,
-                                modifier = Modifier.size(13.dp)
-                            )
-                            Spacer(modifier = Modifier.width(3.dp))
-                            Text(
-                                text = "Reset",
-                                color = if (isError) AmberText else CyberTeal,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                    }
-
-                    // Sync Health pill
-                    Surface(
-                        onClick = onForceSyncHealth,
-                        shape = RoundedCornerShape(8.dp),
-                        color = CyberTeal.copy(alpha = 0.12f),
-                        border = BorderStroke(1.dp, CyberTeal.copy(alpha = 0.35f))
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Sync,
-                                contentDescription = "Sync",
-                                tint = CyberTeal,
-                                modifier = Modifier.size(13.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "Sync Health",
-                                color = CyberTeal,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                    }
-                }
+    val isError = listOf("error", "failed", "unable", "interrupted", "timed out", "not found", "could not")
+        .any { lastStatus.contains(it, ignoreCase = true) }
+    val bluetoothOff = lastStatus.contains("turned off", true) || lastStatus.contains("disabled", true)
+    Surface(shape = RoundedCornerShape(18.dp), color = SurfaceCard,
+        border = BorderStroke(1.dp, if (isError) WarningAmber.copy(alpha = 0.5f) else SurfaceCardStroke)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(if (isError) Icons.Rounded.Info else Icons.Rounded.History,
+                    contentDescription = null, tint = if (isError) WarningAmber else TextMuted,
+                    modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(if (isError) "Check your connection" else "Latest activity", color = TextWhite,
+                    fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             }
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Text(
-                text = if (lastStatus.isNotBlank()) lastStatus else "Bluetooth releases in ~1.5s after pulses • Step & sleep sync never blocked",
-                color = if (isError) TextWhite else TextMuted,
-                fontSize = 11.sp,
-                lineHeight = 15.sp,
-                maxLines = 3
-            )
-
-            // When error is present, display recovery action buttons
-            if (isError) {
-                Spacer(modifier = Modifier.height(10.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    if (isBtDisabled) {
-                        Button(
-                            onClick = onEnableBluetooth,
-                            shape = RoundedCornerShape(8.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = WarningAmber, contentColor = DarkBg),
-                            modifier = Modifier.fillMaxWidth(),
-                            contentPadding = PaddingValues(vertical = 4.dp)
-                        ) {
-                            Icon(Icons.Rounded.Bluetooth, contentDescription = null, modifier = Modifier.size(14.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Turn On Bluetooth", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        }
-                    } else {
-                        Button(
-                            onClick = onResetConnection,
-                            shape = RoundedCornerShape(8.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = CyberTeal, contentColor = DarkBg),
-                            modifier = Modifier.weight(1f),
-                            contentPadding = PaddingValues(vertical = 4.dp)
-                        ) {
-                            Icon(Icons.Rounded.RestartAlt, contentDescription = null, modifier = Modifier.size(14.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Reset Link", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        }
-
-                        OutlinedButton(
-                            onClick = onAutoDetectBand,
-                            shape = RoundedCornerShape(8.dp),
-                            border = BorderStroke(1.dp, CyberTeal),
-                            modifier = Modifier.weight(1f),
-                            contentPadding = PaddingValues(vertical = 4.dp)
-                        ) {
-                            Icon(Icons.Rounded.Search, contentDescription = null, tint = CyberTeal, modifier = Modifier.size(14.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Auto-Find Band", color = CyberTeal, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        }
-                    }
+            Text(lastStatus.ifBlank { "No alerts yet. Try a test with your band nearby." },
+                color = TextMuted, fontSize = 12.sp, lineHeight = 18.sp,
+                modifier = Modifier.padding(top = 8.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = if (bluetoothOff) onEnableBluetooth else onResetConnection,
+                    modifier = Modifier.heightIn(min = 48.dp)) {
+                    Text(if (bluetoothOff) "Turn on Bluetooth" else "Reset link", color = CyberTeal, fontSize = 12.sp)
+                }
+                TextButton(onClick = onForceSyncHealth, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Text("Open companion app", color = TextMuted, fontSize = 12.sp)
                 }
             }
         }
     }
 }
-
-// =========================================================================
-// 2. MODERN CALL ALERT CARD
-// =========================================================================
 
 private data class CallOptionItem(
     val pattern: AirHapticPattern,
@@ -722,7 +552,7 @@ fun ModernCallAlertCard(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "Vibrate band on ring without waking screen",
+                            text = "Wrist alerts when your phone rings",
                             color = TextMuted,
                             fontSize = 11.sp
                         )
@@ -771,7 +601,7 @@ fun ModernCallAlertCard(
                         CallOptionItem(
                             AirHapticPattern.CONTINUOUS,
                             "Continuous",
-                            "Steady Buzz",
+                            "Repeating pulses",
                             Icons.Rounded.GraphicEq
                         )
                     )
@@ -939,7 +769,7 @@ fun ModernPriorityAppsCard(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = if (!isEnabled) "Notification vibrations paused" else if (isExpanded) "Allowed apps stay at top" else "${grantedRules.size} of 5 on",
+                            text = if (!isEnabled) "Notification vibrations paused" else if (isExpanded) "Choose up to 5 apps and their patterns" else "${grantedRules.size} of 5 on",
                             color = if (!isEnabled) WarningAmber else TextMuted,
                             fontSize = 11.sp
                         )
@@ -1344,13 +1174,13 @@ fun ModernPermissionsCard(
                     Spacer(modifier = Modifier.width(10.dp))
                     Column {
                         Text(
-                            text = "System Readiness",
+                            text = "Permissions & background access",
                             color = TextWhite,
                             fontSize = 17.sp,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = if (allReady) "All permissions active" else "$grantedCount of 4 granted",
+                            text = if (allReady) "Required access is enabled" else "$grantedCount of 4 granted",
                             color = if (allReady) EmeraldText else AmberText,
                             fontSize = 11.sp
                         )
@@ -1455,7 +1285,7 @@ fun ModernPermissionsCard(
                         PermissionTile(
                             modifier = Modifier.weight(1f),
                             title = "Bluetooth BLE",
-                            description = if (hasBluetoothPerm) "Connected & ready" else "Tap to grant",
+                            description = if (hasBluetoothPerm) "Permission granted" else "Tap to grant",
                             isGranted = hasBluetoothPerm,
                             icon = Icons.Rounded.Bluetooth,
                             onClick = onRequestBluetoothPerm
@@ -1667,7 +1497,7 @@ fun ModernPrivacyAccordionCard() {
                     Spacer(modifier = Modifier.width(10.dp))
 
                     Text(
-                        text = "FAQs & How AirBridge Works",
+                        text = "Privacy & how it works",
                         color = TextWhite,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.SemiBold,
@@ -1701,43 +1531,43 @@ fun ModernPrivacyAccordionCard() {
                     PrivacyPillarCard(
                         icon = Icons.Rounded.Lock,
                         title = "Does it vibrate when phone is locked?",
-                        description = "Yes, 100%. AirBridge runs with background Android wake-locks. When a call or notification arrives while your phone is locked or in your pocket, AirBridge connects directly via BLE and vibrates your Fitbit Air instantly without waking or unlocking your screen."
+                        description = "AirBridge is designed to deliver alerts while your phone is locked. Delivery depends on Bluetooth range, permissions and Android background restrictions. Test it with your phone locked before relying on it."
                     )
 
                     PrivacyPillarCard(
                         icon = Icons.Rounded.PhoneInTalk,
                         title = "How does incoming call vibration work?",
-                        description = "When your phone rings, AirBridge continuously pulses the Urgent Alert pattern on your Fitbit Air until you answer, reject, or silence the call."
+                        description = "Incoming calls use your selected pattern. Repeating alerts stop when Android reports that ringing has ended, or when the service reaches its safety limit. A current alert may finish before stopping."
                     )
 
                     PrivacyPillarCard(
                         icon = Icons.Rounded.Sync,
-                        title = "Why does Google Health say 'Synced X min ago'?",
-                        description = "This is Google Health's default battery-saver schedule. It syncs in 15–30 minute batches in the background. Pull down in Google Health anytime for an instant live sync. AirBridge releases Bluetooth in 1–2s so Google sync is never blocked."
+                        title = "How does companion-app syncing work?",
+                        description = "AirBridge releases its connection after alerts. Repeating call alerts may hold it longer. Sync timing is controlled by the companion app; uninterrupted sync is not guaranteed. Open that app to check syncing."
                     )
 
                     PrivacyPillarCard(
                         icon = Icons.Rounded.Bolt,
                         title = "Does it drain phone or Fitbit battery?",
-                        description = "Virtually zero (< 1% per day). AirBridge uses event-driven Android listeners and stays completely asleep until an alert arrives. On the band, Bluetooth Low Energy uses micro-joules, consuming only ~1–2% battery across a full day."
+                        description = "Battery use varies with alert frequency, signal strength and retries. The service starts for alerts rather than polling continuously. No verified daily battery benchmark is available yet."
                     )
 
                     PrivacyPillarCard(
                         icon = Icons.Rounded.RestartAlt,
                         title = "What if connection fails or is interrupted?",
-                        description = "If Bluetooth drops or band was out of range, tap 'Reset' or 'Auto-Find Band' at the top. AirBridge flushes stuck Android GATT caches, clears stale DTLS handshakes, and re-links in seconds."
+                        description = "Bring your band nearby and check Bluetooth. Try Reset link, then test again. Use Change band to explicitly select a device. If an alert is interrupted, check the vibration intensity setting in the companion app."
                     )
 
                     PrivacyPillarCard(
                         icon = Icons.Rounded.AccountBalance,
                         title = "Does this app affect UPI or Banking apps?",
-                        description = "Not at all! Unlike older notification tools, AirBridge requires NO Accessibility Service, NO overlay draw permissions, and NO screen capture. Android Banking and UPI apps (GPay, PhonePe, Paytm, Banking apps) detect zero risk and work normally."
+                        description = "AirBridge does not request an Accessibility Service, overlay access or screen capture. Banking apps apply their own security policies, so compatibility cannot be guaranteed."
                     )
 
                     PrivacyPillarCard(
                         icon = Icons.Rounded.VisibilityOff,
                         title = "Does it read my messages or private data?",
-                        description = "Never. AirBridge only inspects which app sent the notification (e.g. WhatsApp, Gmail) to trigger your custom vibration pattern. It never reads or stores message text, photos, sender details, or contacts. 100% offline & on-device."
+                        description = "Android notification access can expose notification content. AirBridge filters by app and uses notification identifiers and timestamps to avoid repeated alerts; its listener does not extract message text. Device and alert settings are stored on your phone."
                     )
                 }
             }
@@ -2024,7 +1854,7 @@ fun SelectAppPatternDialog(
         AirHapticPattern.DOUBLE to "2 distinct pulses for direct messages",
         AirHapticPattern.TRIPLE to "3 rhythmic pulses for group chats",
         AirHapticPattern.LONG_GAP to "2 spaced pulses for reminders",
-        AirHapticPattern.URGENT to "4 rapid urgent pulses for emergencies"
+        AirHapticPattern.URGENT to "Rapid pulse groups for prominent alerts"
     )
 
     Dialog(onDismissRequest = onDismiss) {
@@ -2281,7 +2111,7 @@ fun ModernCollapsibleDiagnosticsCard(
                     Spacer(modifier = Modifier.height(10.dp))
 
                     Text(
-                        text = "100% Zero-Accessibility • Background BLE GATTlink / DTLS 1.2",
+                        text = "No Accessibility Service required",
                         color = TextDim,
                         fontSize = 10.sp
                     )
@@ -2298,8 +2128,10 @@ fun BleScannerDialog(
     onDismiss: () -> Unit,
     onSelect: (DiscoveredBleDevice) -> Unit
 ) {
-    val devices by bleScanner.devices.collectAsState()
+    val discoveredDevices by bleScanner.devices.collectAsState()
+    val devices = discoveredDevices.filter { it.isFitbit }
     val isScanning by bleScanner.isScanning.collectAsState()
+    val scanError by bleScanner.error.collectAsState()
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -2317,7 +2149,7 @@ fun BleScannerDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "BLE RADAR SCANNER",
+                        text = "Find your band",
                         color = TextWhite,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
@@ -2334,7 +2166,7 @@ fun BleScannerDialog(
 
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = if (isScanning) "Searching for nearby Fitbit Air devices..." else "Scan finished.",
+                    text = scanError ?: if (isScanning) "Keep your band nearby. Select it from the list." else "Only devices advertising a Fitbit name are listed. Other devices need Manual setup.",
                     color = TextMuted,
                     fontSize = 11.sp
                 )
@@ -2349,7 +2181,7 @@ fun BleScannerDialog(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = if (isScanning) "Listening for BLE advertisements..." else "No devices found.",
+                            text = if (isScanning) "Listening for BLE advertisements..." else "No named Fitbit found. Wake the band and rescan, or use Manual setup for a known address.",
                             color = TextDim,
                             fontSize = 12.sp
                         )
@@ -2378,10 +2210,13 @@ fun BleScannerDialog(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Column {
+                                Column(Modifier.weight(1f).padding(end = 8.dp)) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text(
                                             text = dev.name,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f),
                                             color = if (dev.isFitbit) CyberTeal else TextWhite,
                                             fontSize = 12.sp,
                                             fontWeight = FontWeight.Bold
@@ -2389,7 +2224,7 @@ fun BleScannerDialog(
                                         if (isCurrent) {
                                             Spacer(modifier = Modifier.width(6.dp))
                                             Text(
-                                                text = "PAIRED",
+                                                text = "SAVED",
                                                 color = NeonEmerald,
                                                 fontSize = 9.sp,
                                                 fontWeight = FontWeight.Bold
@@ -2412,7 +2247,7 @@ fun BleScannerDialog(
                                         contentColor = TextWhite
                                     ),
                                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                                    modifier = Modifier.height(30.dp)
+                                    modifier = Modifier.heightIn(min = 48.dp)
                                 ) {
                                     Text("Select", fontSize = 10.sp, fontWeight = FontWeight.Bold)
                                 }
