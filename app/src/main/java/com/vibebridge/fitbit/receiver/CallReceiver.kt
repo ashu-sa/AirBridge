@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.telephony.TelephonyManager
+import com.vibebridge.fitbit.schedule.AlertScheduleStore
 import com.vibebridge.fitbit.ble.AirBridgeDeviceSettings
 import com.vibebridge.fitbit.service.AirBridgeOneShotService
 import com.vibebridge.fitbit.service.AirNotificationTrigger
@@ -24,7 +25,13 @@ class CallReceiver : BroadcastReceiver() {
 
         when (state) {
             TelephonyManager.EXTRA_STATE_RINGING -> {
+                val blocked = AlertScheduleStore.blockReason(context)
+                if (blocked != null) {
+                    AirBridgeDeviceSettings.saveLastStatus(context, "Incoming call: $blocked")
+                    return
+                }
                 if (!AirBridgeDeviceSettings.isCallAlertEnabled(context)) {
+                    AirBridgeDeviceSettings.saveLastStatus(context, "Incoming call: call alerts are switched off.")
                     Timber.d("Call alerts are disabled in settings")
                     return
                 }

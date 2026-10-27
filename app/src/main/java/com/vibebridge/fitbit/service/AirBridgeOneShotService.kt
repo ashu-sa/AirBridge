@@ -19,6 +19,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.fitbit.bluetooth.fbgatt.BitGattHelper
@@ -35,16 +36,21 @@ import com.fitbit.goldengate.bt.DEFAULT_CLIENT_ADDRESS
 import com.fitbit.goldengate.bt.DEFAULT_SERVER_ADDRESS
 import com.fitbit.goldengate.bt.PeerRole
 import com.fitbit.goldengate.node.stack.StackPeer
+import com.vibebridge.fitbit.schedule.AlertScheduleStore
 import com.vibebridge.fitbit.AirHapticPattern
 import com.vibebridge.fitbit.MainActivity
 import com.vibebridge.fitbit.ble.AirBridgeDeviceSettings
 import com.vibebridge.fitbit.ble.AirBridgeRuntime
 import com.vibebridge.fitbit.ble.AirDirectSettingsProtocol
 import com.vibebridge.fitbit.ble.AirHapticExecutionResult
+import com.vibebridge.fitbit.ble.NativePeerCleanup
+import com.vibebridge.fitbit.ble.BleSessionDiagnostics
+import com.vibebridge.fitbit.ble.PendingHapticRecovery
 import com.vibebridge.fitbit.ble.HapticsRestoreException
 import com.vibebridge.fitbit.ble.AirHapticPatternExecutor
 import com.vibebridge.fitbit.ble.DiagnosticTlsIdentityRecorder
 import io.reactivex.Single
+import io.reactivex.Completable
 import io.reactivex.android.schedulers.AndroidSchedulers
 import io.reactivex.disposables.CompositeDisposable
 import io.reactivex.schedulers.Schedulers
@@ -58,7 +64,9 @@ data class AirNotificationTrigger(
     val sourcePackage: String,
     val pattern: AirHapticPattern,
     val isCall: Boolean = false,
-    val isContinuousCall: Boolean = false
+    val isContinuousCall: Boolean = false,
+    val createdAtElapsed: Long = 0L,
+    val isManual: Boolean = false
 )
 
 /**
@@ -72,6 +80,7 @@ class AirBridgeOneShotService : Service() {
     private val disposables = CompositeDisposable()
     private val mainHandler = Handler(Looper.getMainLooper())
     private var processing = false
+    private var foregroundReady = false
     private var resetWhenIdle = false
     private var stopRequested = false
     private var callRepeatRunnable: Runnable? = null
@@ -86,10 +95,22 @@ class AirBridgeOneShotService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
-        startForeground(NOTIFICATION_ID, buildNotification("Ready for on-demand BLE haptics"))
+        try {
+            startForeground(NOTIFICATION_ID, buildNotification("Ready for on-demand BLE haptics"))
+            foregroundReady = true
+        } catch (error: Exception) {
+            AirBridgeDeviceSettings.saveLastStatus(this, "Unable to start alerts. Check Nearby devices permission and reopen AirBridge.")
+            Timber.w(error, "Unable to enter connected-device foreground mode")
+            isVibrating = false
+            stopSelf()
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (!foregroundReady) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
         val action = intent?.action
         if (action == ACTION_CANCEL_CALL) {
             if (!isCallRinging && queue.none { it.isCall }) {
@@ -120,23 +141,34 @@ class AirBridgeOneShotService : Service() {
         val sourcePackage = intent?.getStringExtra(EXTRA_SOURCE_PACKAGE)
         val pattern = intent?.getStringExtra(EXTRA_PATTERN)?.let(AirHapticPattern::fromWireName)
         val isCall = intent?.getBooleanExtra(EXTRA_IS_CALL, false) ?: false
+        val isManual = intent?.getBooleanExtra(EXTRA_IS_MANUAL, false) ?: false
         val isContinuousCall = intent?.getBooleanExtra(EXTRA_IS_CONTINUOUS_CALL, false) ?: false
 
         if (sourcePackage != null && pattern != null) {
+            val blocked = AlertScheduleStore.blockReason(this)
+            if (blocked != null) {
+                updateStatus(blocked)
+                if (!processing) processNext()
+                return START_NOT_STICKY
+            }
             if (isCall) {
                 if (isContinuousCall) {
                     if (!isCallRinging) {
-                        callRingStartTime = System.currentTimeMillis()
+                        callRingStartTime = SystemClock.elapsedRealtime()
                         callRingBurstCount = 0
                     }
                     if (isCallRinging) return START_NOT_STICKY
                     isCallRinging = true
                 }
-                // Prioritize calls at the front of queue
-                queue.addFirst(AirNotificationTrigger(sourcePackage, pattern, isCall = true, isContinuousCall = isContinuousCall))
+                // Prioritize calls without allowing manual-test floods to grow the queue.
+                while (queue.size >= MAX_QUEUE_SIZE) queue.removeLast()
+                queue.addFirst(AirNotificationTrigger(sourcePackage, pattern, isCall = true,
+                    isContinuousCall = isContinuousCall, createdAtElapsed = SystemClock.elapsedRealtime(), isManual = isManual))
             } else {
+                queue.removeAll { !it.isCall && it.sourcePackage == sourcePackage }
                 if (queue.size < MAX_QUEUE_SIZE) {
-                    queue.addLast(AirNotificationTrigger(sourcePackage, pattern, isCall = false, isContinuousCall = false))
+                    queue.addLast(AirNotificationTrigger(sourcePackage, pattern,
+                        createdAtElapsed = SystemClock.elapsedRealtime(), isManual = isManual))
                 } else {
                     updateStatus("Queue full; discarded $sourcePackage")
                 }
@@ -166,8 +198,28 @@ class AirBridgeOneShotService : Service() {
 
     private fun processNext() {
         if (processing) return
+        val blocked = AlertScheduleStore.blockReason(this)
+        if (blocked != null) {
+            queue.clear()
+            isCallRinging = false
+            callRepeatRunnable?.let { mainHandler.removeCallbacks(it) }
+            callRepeatRunnable = null
+            updateStatus(blocked)
+            stopSelfIfQueueEmpty()
+            return
+        }
+        queue.removeAll { !automaticFeatureEnabled(it) ||
+            (!it.isCall && SystemClock.elapsedRealtime() - it.createdAtElapsed > MAX_ALERT_AGE_MILLIS) }
         val trigger = queue.pollFirst()
         if (trigger == null) {
+            stopSelfIfQueueEmpty()
+            return
+        }
+        val address = AirBridgeDeviceSettings.loadAddress(this)
+        if (!trigger.isManual && address != null && PendingHapticRecovery.get(this, address) != null) {
+            updateStatus("Previous alert needs vibration-setting recovery. Automatic alerts are paused.")
+            queue.clear()
+            isCallRinging = false
             stopSelfIfQueueEmpty()
             return
         }
@@ -181,15 +233,16 @@ class AirBridgeOneShotService : Service() {
                 .subscribe(
                     { result ->
                         val status = "Success: ${trigger.sourcePackage} [${trigger.pattern.displayName}], " +
-                                "${result.groups.size} pulse group(s), restored to " +
+                                "${result.groupCount} pulse group(s), restored to " +
                                 AirDirectSettingsProtocol.hapticsIntensityName(result.finalIntensity)
                         updateStatus(status)
                         processing = false
 
                         // If it's a call and the phone is still ringing, queue another pulse after a short breather
-                        if (trigger.isCall && trigger.isContinuousCall && isCallRinging) {
+                        if (trigger.isCall && trigger.isContinuousCall && isCallRinging &&
+                            AlertScheduleStore.blockReason(this) == null) {
                             callRingBurstCount++
-                            val elapsed = System.currentTimeMillis() - callRingStartTime
+                            val elapsed = SystemClock.elapsedRealtime() - callRingStartTime
                             if (elapsed > MAX_CALL_RING_DURATION_MILLIS || callRingBurstCount > MAX_CALL_BURSTS) {
                                 Timber.i("Call ringing safety limit reached (${elapsed}ms, ${callRingBurstCount} bursts). Releasing haptics.")
                                 isCallRinging = false
@@ -197,12 +250,13 @@ class AirBridgeOneShotService : Service() {
                                 releasePeer()
                                 processNext()
                             } else {
+                                releaseWakeLock()
                                 callRepeatRunnable = Runnable {
                                     callRepeatRunnable = null
                                     if (isCallRinging) queue.addFirst(trigger)
                                     processNext()
                                 }
-                                mainHandler.postDelayed(callRepeatRunnable!!, 1200L)
+                                mainHandler.postDelayed(callRepeatRunnable!!, CALL_REPEAT_GAP_MILLIS)
                             }
                         } else {
                             processNext()
@@ -216,8 +270,9 @@ class AirBridgeOneShotService : Service() {
                         processing = false
                         activeEndpoint = null
                         releasePeer()
-                        val fitbitGatt = FitbitGatt.getInstance()
-                        runCatching { BitGattHelper.clearConnections(fitbitGatt) }
+                        if (AirBridgeRuntime.isInitialized()) {
+                            runCatching { BitGattHelper.clearConnections(FitbitGatt.getInstance()) }
+                        }
                         processNext()
                     }
                 )
@@ -228,6 +283,8 @@ class AirBridgeOneShotService : Service() {
         val rawMsg = throwable.message.orEmpty()
         val errType = throwable.javaClass.simpleName
         val hint = when {
+            BleSessionDiagnostics.cleanupFailed ->
+                "Bluetooth cleanup did not finish. Force stop AirBridge in Android app settings, then reopen it."
             rawMsg.contains("Encrypted session failed", ignoreCase = true) ->
                 "Could not establish a secure session. Confirm band setup in the companion app, then retry."
             rawMsg.contains("Bluetooth is disabled", ignoreCase = true) ->
@@ -255,8 +312,9 @@ class AirBridgeOneShotService : Service() {
     private fun stopSelfIfQueueEmpty() {
         releasePeer()
         if (resetWhenIdle) {
-            val fitbitGatt = FitbitGatt.getInstance()
-            runCatching { BitGattHelper.clearConnections(fitbitGatt) }
+            if (AirBridgeRuntime.isInitialized()) {
+                runCatching { BitGattHelper.clearConnections(FitbitGatt.getInstance()) }
+            }
             DiagnosticTlsIdentityRecorder.clear()
             resetWhenIdle = false
             updateStatus("Connection reset. Ready for the next alert.")
@@ -274,18 +332,27 @@ class AirBridgeOneShotService : Service() {
         stopSelf()
     }
 
+    private fun automaticFeatureEnabled(trigger: AirNotificationTrigger): Boolean = trigger.isManual ||
+        if (trigger.isCall) AirBridgeDeviceSettings.isCallAlertEnabled(this)
+        else AirBridgeDeviceSettings.isNotificationAlertsEnabled(this)
+
+    private fun canBegin(trigger: AirNotificationTrigger): Boolean = !stopRequested &&
+        !BleSessionDiagnostics.cleanupFailed && automaticFeatureEnabled(trigger) &&
+        (!trigger.isContinuousCall || isCallRinging) && AlertScheduleStore.blockReason(this) == null
+
     private fun executeWithRetry(
         trigger: AirNotificationTrigger,
         attemptIndex: Int
     ): Single<AirHapticExecutionResult> = Single.defer {
-        if (stopRequested || (trigger.isContinuousCall && !isCallRinging)) {
+        if (!canBegin(trigger) ||
+            (!trigger.isCall && SystemClock.elapsedRealtime() - trigger.createdAtElapsed > MAX_ALERT_AGE_MILLIS)) {
             Single.error(CancellationException("Alert stopped before connection attempt"))
         } else {
             executeOnce(trigger)
         }
     }.onErrorResumeNext { throwable ->
-            releasePeer()
-            if (!AlertRetryPolicy.shouldRetry(attemptIndex, RETRY_DELAYS_MILLIS.size,
+        releasePeerAndWait().andThen(Single.defer {
+            if (BleSessionDiagnostics.cleanupFailed || !AlertRetryPolicy.shouldRetry(attemptIndex, RETRY_DELAYS_MILLIS.size,
                     trigger.isContinuousCall, isCallRinging, stopRequested, throwable)) {
                 Single.error(throwable)
             } else {
@@ -296,7 +363,8 @@ class AirBridgeOneShotService : Service() {
                 Single.timer(delay, TimeUnit.MILLISECONDS)
                     .flatMap { executeWithRetry(trigger, attemptIndex + 1) }
             }
-        }
+        })
+    }
 
     private fun executeOnce(trigger: AirNotificationTrigger): Single<AirHapticExecutionResult> {
         val address = AirBridgeDeviceSettings.loadAddress(this)
@@ -308,30 +376,28 @@ class AirBridgeOneShotService : Service() {
                 address
             }.flatMap { resolveDeviceConnection(it) }
                 .flatMap { connection -> connectStack(connection.device.address) }
-                .doOnSuccess { endpoint ->
-                    if (trigger.isCall && trigger.isContinuousCall) {
-                        activeEndpoint = endpoint
-                    }
-                }
+
 
         return getEndpoint
             .flatMap { endpoint ->
-                updateStatus("Connected! Pulsing ${trigger.pattern.displayName}")
-                AirHapticPatternExecutor.execute(endpoint, trigger.pattern)
-                    .timeout(25, TimeUnit.SECONDS)
+                if (!canBegin(trigger)) return@flatMap Single.error<AirHapticExecutionResult>(CancellationException("Alert cancelled before settings write"))
+                val pending = PendingHapticRecovery.get(this, address)
+                val ready = if (pending == null) Single.just(Unit)
+                    else if (trigger.isManual) {
+                        updateStatus("Recovering the previous vibration setting before testing")
+                        AirHapticPatternExecutor.recover(endpoint, pending) { PendingHapticRecovery.clear(this, address) }
+                    } else Single.error(HapticsRestoreException("Previous vibration setting needs recovery"))
+                ready.flatMap {
+                    if (!canBegin(trigger)) return@flatMap Single.error<AirHapticExecutionResult>(CancellationException("Alert cancelled before settings write"))
+                    updateStatus("Connected! Pulsing ${trigger.pattern.displayName}")
+                    AirHapticPatternExecutor.execute(endpoint, trigger.pattern,
+                        checkpoint = { PendingHapticRecovery.mark(this, address, it) },
+                        verified = { PendingHapticRecovery.clear(this, address) })
+                }.timeout(30, TimeUnit.SECONDS)
             }
             .flatMap { result ->
-                if (!trigger.isCall || !trigger.isContinuousCall || !isCallRinging) {
-                    activeEndpoint = null
-                    releasePeer()
-                    Single.timer(RELEASE_SETTLE_MILLIS, TimeUnit.MILLISECONDS).map { result }
-                } else {
-                    Single.just(result)
-                }
-            }
-            .doOnError {
-                activeEndpoint = null
-                releasePeer()
+                // Yield the band after EVERY bounded pattern, including repeating calls.
+                releasePeerAndWait().andThen(Single.timer(RELEASE_SETTLE_MILLIS, TimeUnit.MILLISECONDS).map { result })
             }
     }
 
@@ -501,7 +567,7 @@ class AirBridgeOneShotService : Service() {
             CoapEndpointBuilder(),
             { connection -> PeripheralConnectionChangeListener().register(connection) },
             { stack ->
-                stack.dtlsEventObservable.doOnNext { status ->
+                stack.dtlsEventObservable.observeOn(Schedulers.io()).doOnNext { status ->
                     check(status.state != DtlsProtocolStatus.TlsProtocolState.TLS_STATE_ERROR) {
                         "Encrypted session failed (code ${status.lastError}). Confirm band setup in the companion app."
                     }
@@ -509,21 +575,33 @@ class AirBridgeOneShotService : Service() {
             }
         )
         activePeer = peer
+        BleSessionDiagnostics.onStarted()
         return peer.connection()
+            .observeOn(Schedulers.io())
             .firstOrError()
             .timeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .map { peer.stackService }
     }
 
-    @Synchronized
-    private fun releasePeer() {
-        activeEndpoint = null
-        val peer = activePeer
-        activePeer = null
-        if (peer != null) {
-            runCatching { peer.disconnect(false) }
-                .onFailure { Timber.w(it, "Failed to disconnect one-shot Air peer") }
+    private fun releasePeerAndWait(): Completable {
+        val peer = synchronized(this) {
+            activeEndpoint = null
+            val detached = activePeer
+            activePeer = null
+            detached
+        } ?: return Completable.complete()
+        // Native stack disposal must never execute inside its own DTLS/CoAP callback.
+        return NativePeerCleanup.close {
+            peer.disconnect(false)
+            BleSessionDiagnostics.onReleased()
         }
+            .doOnError { BleSessionDiagnostics.cleanupFailed = true }
+    }
+
+    private fun releasePeer() {
+        releasePeerAndWait().subscribe({}, { error ->
+            Timber.w(error, "BLE cleanup could not complete")
+        })
     }
 
 
@@ -603,22 +681,54 @@ class AirBridgeOneShotService : Service() {
         private const val EXTRA_SOURCE_PACKAGE = "source_package"
         private const val EXTRA_PATTERN = "pattern"
         private const val EXTRA_IS_CALL = "is_call"
+        private const val EXTRA_IS_MANUAL = "is_manual"
         private const val EXTRA_IS_CONTINUOUS_CALL = "extra_is_continuous_call"
 
         private const val CHANNEL_ID = "air_bridge_ble_connection"
         private const val NOTIFICATION_ID = 24001
-        private const val MAX_QUEUE_SIZE = 10
+        private const val MAX_QUEUE_SIZE = 3
+        private const val MAX_ALERT_AGE_MILLIS = 30_000L
+        private const val CALL_REPEAT_GAP_MILLIS = 5_000L
         private const val SCAN_TIMEOUT_MILLIS = 8_000L
         private const val CONNECT_TIMEOUT_SECONDS = 20L
-        private const val RELEASE_SETTLE_MILLIS = 700L
+        private const val RELEASE_SETTLE_MILLIS = 2_000L
         private const val WAKE_LOCK_TIMEOUT_MILLIS = 120_000L
         private const val MAX_CALL_RING_DURATION_MILLIS = 60_000L
         private const val MAX_CALL_BURSTS = 15
         private val RETRY_DELAYS_MILLIS = listOf(2_000L, 4_000L)
 
         fun enqueue(context: Context, trigger: AirNotificationTrigger): Boolean {
+            if (BleSessionDiagnostics.cleanupFailed) {
+                AirBridgeDeviceSettings.saveLastStatus(context, "Bluetooth cleanup did not finish. Force stop AirBridge in Android app settings, then reopen it before trying again.")
+                return false
+            }
+            val blocked = AlertScheduleStore.blockReason(context)
+            if (blocked != null) {
+                AirBridgeDeviceSettings.saveLastStatus(context, blocked)
+                return false
+            }
+            val hasPermissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                context.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED &&
+                    context.checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED
+            } else context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+            if (!hasPermissions) {
+                AirBridgeDeviceSettings.saveLastStatus(context, "Nearby devices permission is required before starting an alert.")
+                return false
+            }
+            val bluetoothEnabled = try {
+                (context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter?.isEnabled == true
+            } catch (_: SecurityException) { false }
+            if (!bluetoothEnabled) {
+                AirBridgeDeviceSettings.saveLastStatus(context, "Bluetooth is turned off. Turn it on before testing alerts.")
+                return false
+            }
             if (AirBridgeDeviceSettings.loadAddress(context) == null) {
                 AirBridgeDeviceSettings.saveLastStatus(context, "Choose a band before testing alerts.")
+                return false
+            }
+            val address = AirBridgeDeviceSettings.loadAddress(context)!!
+            if (!trigger.isManual && PendingHapticRecovery.get(context, address) != null) {
+                AirBridgeDeviceSettings.saveLastStatus(context, "Previous alert was interrupted. Use Recover vibration setting before enabling more alerts.")
                 return false
             }
             isVibrating = true
@@ -626,6 +736,7 @@ class AirBridgeOneShotService : Service() {
                 .putExtra(EXTRA_SOURCE_PACKAGE, trigger.sourcePackage)
                 .putExtra(EXTRA_PATTERN, trigger.pattern.wireName)
                 .putExtra(EXTRA_IS_CALL, trigger.isCall)
+                .putExtra(EXTRA_IS_MANUAL, trigger.isManual)
                 .putExtra(EXTRA_IS_CONTINUOUS_CALL, trigger.isContinuousCall)
             return runCatching {
                 ContextCompat.startForegroundService(context, intent)
@@ -660,7 +771,9 @@ class AirBridgeOneShotService : Service() {
             }
         }
 
-        fun releaseBleNow(context: Context) = stopAll(context)
+        fun releaseBleNow(context: Context) {
+            if (isVibrating) stopAll(context)
+        }
 
         fun resetConnection(context: Context) {
             val intent = Intent(context, AirBridgeOneShotService::class.java).apply {

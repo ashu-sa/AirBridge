@@ -9,6 +9,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 object AirBridgeRuntime {
     private val initialized = AtomicBoolean(false)
 
+    fun isInitialized(): Boolean = initialized.get()
+
     @Synchronized
     fun ensureInitialized(context: Context) {
         if (initialized.get()) return

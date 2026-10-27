@@ -17,17 +17,22 @@ The current implementation is built around the device identified in the app as *
     <td align="center"><img src="screenshots/reset_recovery.png" width="260" alt="Connection reset and recovery screen"><br>Connection recovery</td>
     <td align="center"><img src="screenshots/faq_privacy.png" width="260" alt="In-app FAQ and privacy information"><br>In-app information</td>
   </tr>
+  <tr>
+    <td align="center"><img src="screenshots/alert_schedule.png" width="260" alt="Expanded alert schedule with editable Workout and overnight Sleep presets, scheduling switched off"><br>Optional alert schedules</td>
+    <td align="center"><img src="screenshots/schedule_editor.png" width="260" alt="Schedule editor with times and all seven weekdays"><br>Time and weekday editor</td>
+  </tr>
 </table>
 
-Screenshots show the updated Android interface. The Saved badge identifies the chosen band; successful alert delivery is reported separately under Latest activity.
+Screenshots show the updated Android interface, including emulator captures of the schedule controls. The schedule starts collapsed, immediately above the FAQ. The Saved badge identifies the chosen band; successful alert delivery is reported separately under Latest activity.
 
 ## Features
 
 - **Incoming call alerts:** Choose Urgent or Continuous alert modes.
+- **Optional alert schedules:** Editable Workout and Sleep presets, selected weekdays and overnight windows. Scheduling starts off and expands above the FAQ.
 - **Priority app rules:** Configure up to five app rules with individual vibration patterns.
 - **Pattern previews:** Try patterns on the band from the selection dialog, or send a single test vibration directly from the band card.
 - **Connection tools:** Use band detection and reset controls when troubleshooting a connection.
-- **On-demand BLE sessions:** The service connects to deliver an alert and cleans up the connection afterward, with the aim of reducing interference with the companion app.
+- **On-demand BLE sessions:** Every bounded pattern releases its connection, including repeating call bursts. Opening the companion app from AirBridge pauses alerts for up to five minutes; you can resume sooner.
 - **No Accessibility Service:** The manifest does not request an Accessibility Service, overlay access or screen capture.
 
 Available patterns include Single, Double, Triple, Long Gap and Urgent. Continuous call mode repeats alert bursts within the service's configured limits.
@@ -39,6 +44,9 @@ Incoming call or selected notification
                   |
                   v
 Android receiver / notification listener
+                  |
+                  v
+Schedule and sync-pause check
                   |
                   v
 Foreground BLE service
@@ -53,7 +61,7 @@ CoAP /settings requests to change haptic intensity
 Restore original intensity and clean up the connection
 ```
 
-The current implementation generates patterns by changing the band's haptic intensity setting and attempting to restore its original value. It does not use a dedicated `/app/haptics/pulse` endpoint. Interrupted connections can affect delivery or restoration; check the band's vibration setting if a session fails.
+The current implementation generates patterns by changing the band's haptic intensity setting and attempting to restore its original value. It does not use a dedicated `/app/haptics/pulse` endpoint. A recovery checkpoint is saved before the first change and cleared only after the original value is read back. If restoration is uncertain, automatic alerts pause until a manual recovery succeeds. Interrupted connections can still affect delivery.
 
 ## Requirements and compatibility
 
@@ -96,13 +104,15 @@ The alert path is designed around local phone-to-band communication. A permissio
 
 ## Development validation
 
-Version 1.0.1 has been built and checked with 14 unit tests and Android lint (zero errors; existing warnings remain). On a Samsung SM-M346B running Android 16, a manual single-pulse test completed and the band setting was read back as LOW. The updated app also rejects the old external test-broadcast commands.
+Version 1.1.0 has 42 passing unit tests and a successful debug build and Android lint run (zero errors; warnings remain). On a Samsung SM-M346B running Android 16, controlled tests exercised all five alert patterns, original-setting restoration, release between repeating call bursts, schedule closure, recovery, and a real Android notification from a separate test sender. A simulated phone-state event also completed Continuous ring and stopped on answer. This does not establish real carrier-call delivery. See [the validation notes](docs/validation-1.1.0.md) for the method and limits.
 
-This is limited development testing, not a compatibility certification. An earlier secure-session timeout was observed during testing. Long-running background delivery, real incoming calls, battery use and companion-app coexistence still need broader testing. Public releases require a private release signing key; the project no longer signs release builds with the debug key.
+This is limited development testing, not a compatibility certification. Secure-session retries were observed and an earlier cleanup hang was addressed. Real incoming-call delivery, battery drain and uninterrupted companion-app sync remain unverified. Public releases require a private release signing key; the project no longer signs release builds with the debug key.
 
 ## Current limitations
 
-- Alert latency and battery consumption have not been documented with reproducible benchmarks.
+- Secure-session setup can delay the first alert; a short call may end before the band can be reached. Battery drain has not yet been measured unplugged.
+- The Incoming calls control handles Android phone-state events. WhatsApp and Telegram calls do not reliably produce those events; app-notification rules are not a guarantee of VoIP call support.
+- Scheduling gates new alert sessions; Android may keep the notification listener process available. No permanent BLE connection, schedule polling loop or exact alarm is added.
 - Connection cleanup is intended to support coexistence with the companion app; uninterrupted sync is not guaranteed.
 - Background restrictions, firmware changes and Bluetooth interruptions may affect alerts.
 - Source availability does not establish compatibility across Fitbit models.

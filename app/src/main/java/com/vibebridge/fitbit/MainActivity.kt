@@ -21,10 +21,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import com.vibebridge.fitbit.ble.PendingHapticRecovery
 import com.vibebridge.fitbit.ble.AirBridgeDeviceSettings
 import com.vibebridge.fitbit.ble.BleScanner
 import com.vibebridge.fitbit.service.AirBridgeOneShotService
 import com.vibebridge.fitbit.service.AirNotificationTrigger
+import com.vibebridge.fitbit.schedule.AlertSchedule
+import com.vibebridge.fitbit.schedule.AlertScheduleStore
 import com.vibebridge.fitbit.ui.FitbitDashboardScreen
 import com.vibebridge.fitbit.ui.theme.FitbitVibeTheme
 
@@ -42,6 +45,10 @@ class MainActivity : ComponentActivity() {
     private var isVibratingActive by mutableStateOf(false)
     private var callPattern by mutableStateOf(AirHapticPattern.URGENT)
     private var notificationRules by mutableStateOf<List<AirNotificationRule>>(emptyList())
+
+    private var alertSchedule by mutableStateOf(AlertSchedule())
+    private var syncPaused by mutableStateOf(false)
+    private var needsHapticRecovery by mutableStateOf(false)
 
     private lateinit var bleScanner: BleScanner
 
@@ -79,9 +86,25 @@ class MainActivity : ComponentActivity() {
                     callPattern = callPattern,
                     rules = notificationRules,
                     bleScanner = bleScanner,
+                    alertSchedule = alertSchedule,
+                    syncPaused = syncPaused,
+                    needsHapticRecovery = needsHapticRecovery,
+                    onChangeSchedule = { updated ->
+                        AlertScheduleStore.save(this, updated)
+                        alertSchedule = updated
+                        if (!AlertScheduleStore.allowsNow(this) && AirBridgeOneShotService.isVibrating) {
+                            AirBridgeOneShotService.stopAll(this)
+                        }
+                    },
+                    onResumeAlerts = {
+                        AlertScheduleStore.clearSyncPause(this)
+                        syncPaused = false
+                        Toast.makeText(this, "Sync pause ended", Toast.LENGTH_SHORT).show()
+                    },
                     onToggleCallAlert = { enabled ->
                         isCallAlertEnabled = enabled
                         AirBridgeDeviceSettings.setCallAlertEnabled(this, enabled)
+                        if (!enabled) AirBridgeOneShotService.cancelCall(this)
                     },
                     onToggleNotificationAlert = { enabled ->
                         isNotificationAlertEnabled = enabled
@@ -123,7 +146,7 @@ class MainActivity : ComponentActivity() {
                         }
                     },
                     onTestCallAlert = {
-                        val trigger = AirNotificationTrigger("Manual Call Test", callPattern, isCall = true, isContinuousCall = false)
+                        val trigger = AirNotificationTrigger("Manual Call Test", callPattern, isCall = true, isContinuousCall = false, isManual = true)
                         isVibratingActive = true
                         val ok = AirBridgeOneShotService.enqueue(this, trigger)
                         if (ok) {
@@ -134,7 +157,7 @@ class MainActivity : ComponentActivity() {
                         }
                     },
                     onTestPattern = { pattern ->
-                        val trigger = AirNotificationTrigger("Manual Pattern Test", pattern, isCall = false, isContinuousCall = false)
+                        val trigger = AirNotificationTrigger("Manual Pattern Test", pattern, isCall = false, isContinuousCall = false, isManual = true)
                         isVibratingActive = true
                         val ok = AirBridgeOneShotService.enqueue(this, trigger)
                         if (ok) {
@@ -153,11 +176,13 @@ class MainActivity : ComponentActivity() {
                     onRequestIgnoreBatteryOptimizations = { requestIgnoreBatteryOptimizations() },
                     onOpenNotificationListenerSettings = { openNotificationListenerSettings() },
                     onForceSyncHealth = {
-                        AirBridgeOneShotService.releaseBleNow(this)
                         val fitbitIntent = packageManager.getLaunchIntentForPackage("com.fitbit.FitbitMobile")
                         if (fitbitIntent != null) {
+                            AlertScheduleStore.pauseForSync(this)
+                            syncPaused = true
+                            AirBridgeOneShotService.releaseBleNow(this)
                             startActivity(fitbitIntent)
-                            Toast.makeText(this, "Opening companion app. Pull down there to sync.", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(this, "Alerts paused for 5 minutes. Pull down in the companion app to sync.", Toast.LENGTH_SHORT).show()
                         } else {
                             Toast.makeText(this, "Companion app not found. You can open it manually.", Toast.LENGTH_SHORT).show()
                         }
@@ -259,11 +284,14 @@ class MainActivity : ComponentActivity() {
 
         pairedAddress = AirBridgeDeviceSettings.loadAddress(this).orEmpty()
         pairedName = AirBridgeDeviceSettings.loadDeviceName(this)
+        needsHapticRecovery = pairedAddress.isNotBlank() && PendingHapticRecovery.get(this, pairedAddress) != null
         lastStatusText = AirBridgeDeviceSettings.loadLastStatus(this)
         isCallAlertEnabled = AirBridgeDeviceSettings.isCallAlertEnabled(this)
         isNotificationAlertEnabled = AirBridgeDeviceSettings.isNotificationAlertsEnabled(this)
         callPattern = AirBridgeDeviceSettings.loadCallPattern(this)
         notificationRules = AirBridgeNotificationSettings.loadRules(this)
+        alertSchedule = AlertScheduleStore.load(this)
+        syncPaused = AlertScheduleStore.isSyncPaused(this)
         isVibratingActive = AirBridgeOneShotService.isVibrating
     }
 

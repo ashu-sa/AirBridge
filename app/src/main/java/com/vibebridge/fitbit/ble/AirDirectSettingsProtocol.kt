@@ -104,10 +104,11 @@ object AirDirectSettingsProtocol {
         }
 
         fun readLengthDelimited(): ByteArray {
-            val length = readVarint().toInt()
-            require(length >= 0 && position + length <= bytes.size) {
+            val encodedLength = readVarint()
+            require(encodedLength >= 0 && encodedLength <= (bytes.size - position).toLong()) {
                 "Truncated protobuf length-delimited field"
             }
+            val length = encodedLength.toInt()
             return bytes.copyOfRange(position, position + length).also { position += length }
         }
 
@@ -115,14 +116,18 @@ object AirDirectSettingsProtocol {
             when (wireType) {
                 0 -> readVarint()
                 1 -> advance(8)
-                2 -> advance(readVarint().toInt())
+                2 -> {
+                    val length = readVarint()
+                    require(length >= 0 && length <= (bytes.size - position).toLong()) { "Truncated protobuf field" }
+                    advance(length.toInt())
+                }
                 5 -> advance(4)
                 else -> throw IllegalArgumentException("Unsupported protobuf wire type $wireType")
             }
         }
 
         private fun advance(count: Int) {
-            require(count >= 0 && position + count <= bytes.size) { "Truncated protobuf field" }
+            require(count >= 0 && count <= bytes.size - position) { "Truncated protobuf field" }
             position += count
         }
     }

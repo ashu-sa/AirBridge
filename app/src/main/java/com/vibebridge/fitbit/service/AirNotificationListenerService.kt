@@ -6,6 +6,7 @@ import android.os.Build
 import android.os.SystemClock
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import com.vibebridge.fitbit.schedule.AlertScheduleStore
 import com.vibebridge.fitbit.AirBridgeNotificationSettings
 import timber.log.Timber
 
@@ -18,10 +19,12 @@ class AirNotificationListenerService : NotificationListenerService() {
 
     override fun onListenerConnected() {
         super.onListenerConnected()
+        com.vibebridge.fitbit.ble.BleSessionDiagnostics.listenerConnected = true
         Timber.i("Fitbit Vibe Notification Listener connected")
     }
 
     override fun onListenerDisconnected() {
+        com.vibebridge.fitbit.ble.BleSessionDiagnostics.listenerConnected = false
         Timber.w("Fitbit Vibe Notification Listener disconnected")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             requestRebind(ComponentName(this, AirNotificationListenerService::class.java))
@@ -32,6 +35,12 @@ class AirNotificationListenerService : NotificationListenerService() {
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         sbn ?: return
         if (sbn.packageName == packageName) return
+        com.vibebridge.fitbit.ble.BleSessionDiagnostics.notificationsObserved.incrementAndGet()
+        if (AlertScheduleStore.blockReason(this) != null) {
+            com.vibebridge.fitbit.ble.BleSessionDiagnostics.lastScheduleBlockedPackage = sbn.packageName
+            com.vibebridge.fitbit.ble.BleSessionDiagnostics.notificationsScheduleBlocked.incrementAndGet()
+            return
+        }
 
         if (!com.vibebridge.fitbit.ble.AirBridgeDeviceSettings.isNotificationAlertsEnabled(this)) {
             Timber.d("Notification vibration alerts globally disabled by user")
@@ -61,6 +70,11 @@ class AirNotificationListenerService : NotificationListenerService() {
             rule.pattern.wireName,
             accepted
         )
+    }
+
+    override fun onDestroy() {
+        com.vibebridge.fitbit.ble.BleSessionDiagnostics.listenerConnected = false
+        super.onDestroy()
     }
 
 }

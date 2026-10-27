@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.core.graphics.drawable.toBitmap
+import com.vibebridge.fitbit.schedule.AlertSchedule
 import com.vibebridge.fitbit.AirBridgeNotificationSettings
 import com.vibebridge.fitbit.AirHapticPattern
 import com.vibebridge.fitbit.AirNotificationRule
@@ -60,6 +61,11 @@ fun FitbitDashboardScreen(
     callPattern: AirHapticPattern,
     rules: List<AirNotificationRule>,
     bleScanner: BleScanner,
+    alertSchedule: AlertSchedule,
+    syncPaused: Boolean,
+    needsHapticRecovery: Boolean,
+    onChangeSchedule: (AlertSchedule) -> Unit,
+    onResumeAlerts: () -> Unit,
     onToggleCallAlert: (Boolean) -> Unit,
     onToggleNotificationAlert: (Boolean) -> Unit,
     onChangeCallPattern: (AirHapticPattern) -> Unit,
@@ -144,6 +150,7 @@ fun FitbitDashboardScreen(
             onOpenScanner = openScanner,
             onTestBand = { onTestPattern(AirHapticPattern.SINGLE) },
             isTesting = isTestingVibration,
+            needsHapticRecovery = needsHapticRecovery,
             onOpenManual = {
                 manualAddressInput = pairedDeviceAddress
                 manualNameInput = pairedDeviceName
@@ -152,6 +159,17 @@ fun FitbitDashboardScreen(
         )
 
         Spacer(modifier = Modifier.height(14.dp))
+
+        if (syncPaused) {
+            Surface(color = SurfaceCardElevated, shape = RoundedCornerShape(16.dp)) {
+                Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                    Text("Paused for companion-app sync", color = CyberTeal, fontWeight = FontWeight.SemiBold)
+                    Text("Automatic alerts resume after 5 minutes, within your schedule.", color = TextMuted, fontSize = 12.sp)
+                    TextButton(onClick = onResumeAlerts) { Text("Resume alerts now") }
+                }
+            }
+            Spacer(modifier = Modifier.height(14.dp))
+        }
 
         // Coexistence sync status & error recovery banner
         CoexistenceSyncBanner(
@@ -239,6 +257,8 @@ fun FitbitDashboardScreen(
         // ==========================================
         // 5. PRIVACY & HOW IT WORKS (INLINE ACCORDION)
         // ==========================================
+        AlertScheduleCard(alertSchedule, onChangeSchedule)
+        Spacer(modifier = Modifier.height(18.dp))
         ModernPrivacyAccordionCard()
         Text("Independent project • Not affiliated with Google or Fitbit",
             color = TextMuted, fontSize = 11.sp, lineHeight = 16.sp,
@@ -411,6 +431,7 @@ fun ModernHeaderCard(
     onOpenScanner: () -> Unit,
     onTestBand: () -> Unit,
     isTesting: Boolean,
+    needsHapticRecovery: Boolean,
     onOpenManual: () -> Unit
 ) {
     Card(
@@ -444,10 +465,14 @@ fun ModernHeaderCard(
                     Text("Manual setup", color = TextMuted, fontSize = 12.sp)
                 }
             }
+            if (needsHapticRecovery) {
+                Text("An alert was interrupted. Recovery restores the pre-alert vibration intensity, then sends a test.",
+                    color = AmberText, fontSize = 12.sp)
+            }
             if (isArmed) {
                 TextButton(onClick = onTestBand, enabled = !isTesting,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                    Text(if (isTesting) "Sending test…" else "Send a test vibration", fontSize = 13.sp)
+                    Text(if (isTesting) "Sending test…" else if (needsHapticRecovery) "Recover vibration setting" else "Send a test vibration", fontSize = 13.sp)
                 }
             }
         }
@@ -1543,7 +1568,7 @@ fun ModernPrivacyAccordionCard() {
                     PrivacyPillarCard(
                         icon = Icons.Rounded.Sync,
                         title = "How does companion-app syncing work?",
-                        description = "AirBridge releases its connection after alerts. Repeating call alerts may hold it longer. Sync timing is controlled by the companion app; uninterrupted sync is not guaranteed. Open that app to check syncing."
+                        description = "AirBridge releases its connection after alerts. Repeating calls release the connection between bursts, with a 5-second gap. Sync timing is controlled by the companion app; uninterrupted sync is not guaranteed. Opening the companion app from AirBridge pauses alerts for 5 minutes so you can sync."
                     )
 
                     PrivacyPillarCard(
