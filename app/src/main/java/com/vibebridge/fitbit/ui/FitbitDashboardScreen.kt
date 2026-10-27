@@ -1565,6 +1565,12 @@ fun ModernPrivacyAccordionCard() {
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     PrivacyPillarCard(
+                        icon = Icons.Rounded.CloudOff,
+                        title = "Does AirBridge need internet or a cloud account?",
+                        description = "AirBridge's Bluetooth alert processing works offline on your phone. No AirBridge cloud service, login or analytics is used, and notification data is not uploaded. The calling or messaging app may still need internet to receive its own calls and messages."
+                    )
+
+                    PrivacyPillarCard(
                         icon = Icons.Rounded.Lock,
                         title = "Does it vibrate when phone is locked?",
                         description = "AirBridge is designed to deliver alerts while your phone is locked. Delivery depends on Bluetooth range, permissions and Android background restrictions. Test it with your phone locked before relying on it."
@@ -1609,7 +1615,7 @@ fun ModernPrivacyAccordionCard() {
                     PrivacyPillarCard(
                         icon = Icons.Rounded.VisibilityOff,
                         title = "Does it read my messages or private data?",
-                        description = "Android notification access can expose notification content. AirBridge filters by app and uses notification identifiers and timestamps to avoid repeated alerts; its listener does not extract message text. Device and alert settings are stored on your phone."
+                        description = "Your messages are not sent to the developer. Android notification access can expose their content, but AirBridge's listener does not extract message text, caller names or OTP codes. It uses app identity, call metadata and notification identifiers locally to trigger and deduplicate alerts. Settings and detected calling-app identifiers stay on your phone."
                     )
                 }
             }
