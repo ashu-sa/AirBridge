@@ -45,20 +45,42 @@ fun AppCallCard(config: AppCallConfig, onChange: (AppCallConfig) -> Unit,
     var expanded by rememberSaveable { mutableStateOf(false) }
     var editingSlot by remember { mutableStateOf<Int?>(null) }
     var patternMenu by remember { mutableStateOf(false) }
-    var apps by remember { mutableStateOf<List<DetectedCallingApp>>(emptyList()) }
+    var apps by remember { mutableStateOf(CallingAppsDiscovery.cachedApps(config.packages + config.slots).orEmpty()) }
     var refreshing by remember { mutableStateOf(false) }
     var refreshVersion by remember { mutableStateOf(0) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle) {
         val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) refreshVersion++ }
+        val packageChanges = object : android.content.BroadcastReceiver() {
+            override fun onReceive(c: android.content.Context?, intent: android.content.Intent?) {
+                CallingAppsDiscovery.invalidate()
+                refreshVersion++
+            }
+        }
+        val filter = android.content.IntentFilter().apply {
+            addAction(android.content.Intent.ACTION_PACKAGE_ADDED)
+            addAction(android.content.Intent.ACTION_PACKAGE_REMOVED)
+            addAction(android.content.Intent.ACTION_PACKAGE_CHANGED)
+            addAction(android.content.Intent.ACTION_PACKAGE_REPLACED)
+            addDataScheme("package")
+        }
+        androidx.core.content.ContextCompat.registerReceiver(context, packageChanges, filter,
+            androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED)
         lifecycle.addObserver(observer)
-        onDispose { lifecycle.removeObserver(observer) }
+        onDispose { lifecycle.removeObserver(observer); context.unregisterReceiver(packageChanges) }
     }
-    LaunchedEffect(expanded, refreshVersion, config.packages, config.slots) {
+    LaunchedEffect(expanded, refreshVersion) {
         if (expanded) {
-            refreshing = true
-            apps = withContext(Dispatchers.IO) { CallingAppsDiscovery.find(context, config.packages + config.slots) }
-            refreshing = false
+            // Expanding and toggling alerts reuse the inventory; only a cold scan shows loading.
+            val selected = config.packages + config.slots
+            val existing = CallingAppsDiscovery.cachedApps(selected)
+            if (existing != null) apps = existing
+            else {
+                refreshing = apps.isEmpty()
+                try {
+                    apps = withContext(Dispatchers.IO) { CallingAppsDiscovery.find(context, selected) }
+                } finally { refreshing = false }
+            }
         }
     }
     val slots = CallingAppSlots.resolve(config.slots, config.packages, apps.map { it.packageName }.toSet(),

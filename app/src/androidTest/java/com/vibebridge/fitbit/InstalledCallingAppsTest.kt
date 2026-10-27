@@ -27,4 +27,15 @@ class InstalledCallingAppsTest {
         CallingAppsDiscovery.find(context,before.packages)
         assertEquals(before,AppCallSettings.load(context))
     }
+    @Test fun repeatedDiscoveryReusesInventoryUntilInvalidated() {
+        val before=AppCallSettings.load(context)
+        CallingAppsDiscovery.invalidate()
+        val first=CallingAppsDiscovery.find(context)
+        assertSame(first,CallingAppsDiscovery.find(context))
+        assertSame(first,CallingAppsDiscovery.cachedApps())
+        CallingAppsDiscovery.invalidate()
+        assertNull(CallingAppsDiscovery.cachedApps())
+        assertEquals(before,AppCallSettings.load(context))
+    }
+
 }

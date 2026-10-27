@@ -24,3 +24,9 @@ The row-style update builds and passes lint (zero errors, 110 warnings) and was 
 ## Collapsed icons and band icon
 
 Collapsed App calls now shows a horizontal strip of selected app icons with the same 46dp tiles and selection dots as Priority Apps. Tapping an icon expands the controls. No selection is required to render the empty-state prompt. The generic watch glyph in Your Band is replaced by an original screenless Fitbit Air tracker/loop illustration, following the form described in Google’s product introduction: https://blog.google/products-and-platforms/devices/fitbit/fitbit-air/. The illustration is an app asset, not an official Google logo.
+
+## Repeated-loading fix
+
+Removed selection and slot changes from discovery effect triggers. Reopening the section and resuming the activity reuse a process-memory inventory for up to five minutes. Package add/remove/change/replace broadcasts and newly observed incoming-call apps invalidate it. Existing rows remain visible during stale-cache refresh; a loading bar is reserved for a cold inventory scan. The package receiver follows the card lifecycle and is unregistered on disposal.
+
+Validation: 75 unit tests pass; debug build and lint pass (zero errors, 110 warnings). Three emulator discovery instrumentation tests pass, including identity checks proving repeated discovery reuses the same inventory until invalidation, and checks that discovery preserves alert settings. Updated APK installed on the connected phone without changing settings. Live call delivery and battery/sync limitations above still apply.

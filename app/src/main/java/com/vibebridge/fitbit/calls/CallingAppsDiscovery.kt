@@ -11,6 +11,14 @@ data class DetectedCallingApp(val packageName: String, val label: String, val re
 
 /** Package declarations and package-only observations. Never starts another app or reads call content. */
 object CallingAppsDiscovery {
+    private data class CachedApps(val apps: List<DetectedCallingApp>, val covered: Set<String>, val at: Long)
+    @Volatile private var cached: CachedApps? = null
+    private const val CACHE_MS = 5 * 60 * 1000L
+    fun invalidate() { cached = null }
+    fun cachedApps(selected: Set<String> = emptySet()): List<DetectedCallingApp>? {
+        val entry = cached ?: return null
+        return entry.apps.takeIf { android.os.SystemClock.elapsedRealtime() - entry.at < CACHE_MS && selected.all { it in entry.covered } }
+    }
     private const val PREFS = "air_bridge_call_discovery"
     private fun observed(c: Context): Set<String> = runCatching {
         c.getSharedPreferences(PREFS, 0).getStringSet("observed", emptySet()).orEmpty().toSet()
@@ -19,9 +27,12 @@ object CallingAppsDiscovery {
         val previous = observed(c)
         if (pkg in previous || previous.size >= 64 || pkg == c.packageName) return
         c.getSharedPreferences(PREFS, 0).edit().putStringSet("observed", previous + pkg).apply()
+        invalidate()
     }
     @Suppress("DEPRECATION")
     fun find(c: Context, selected: Set<String> = emptySet()): List<DetectedCallingApp> {
+        cachedApps(selected)?.let { return it }
+        val scanStarted = android.os.SystemClock.elapsedRealtime()
         val pm = c.packageManager
         val seenCalls = observed(c)
         val declaredServices = runCatching {
@@ -31,7 +42,7 @@ object CallingAppsDiscovery {
         val launchable = InstalledAppsManager.getInstalledLauncherApps(c, forceRefresh = true).map { it.packageName }.toSet()
         val candidates = launchable +
             KnownCallingApps.packages + declaredServices + seenCalls + selected
-        return candidates.mapNotNull { pkg ->
+        val results = candidates.mapNotNull { pkg ->
             if (pkg == c.packageName) return@mapNotNull null
             runCatching {
                 val info = pm.getPackageInfo(pkg, PackageManager.GET_PERMISSIONS or PackageManager.GET_SERVICES)
@@ -49,5 +60,7 @@ object CallingAppsDiscovery {
                 DetectedCallingApp(pkg, pm.getApplicationLabel(app).toString(), reason)
             }.getOrNull()
         }.sortedWith(compareBy<DetectedCallingApp> { it.reason == CallingAppReason.MANUAL }.thenBy { it.label.lowercase() })
+        cached = CachedApps(results, selected + results.map { it.packageName }, scanStarted)
+        return results
     }
 }
