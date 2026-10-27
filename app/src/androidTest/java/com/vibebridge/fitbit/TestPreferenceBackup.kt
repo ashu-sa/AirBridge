@@ -5,7 +5,7 @@ import org.json.JSONObject
 
 /** Test-only, durable user-preference backup so a deliberate process kill cannot lose settings. */
 internal object TestPreferenceBackup {
-    private val names=listOf("air_bridge_device","air_bridge_schedule","air_notification_bridge")
+    private val names=listOf("air_bridge_device","air_bridge_schedule","air_notification_bridge","air_bridge_call_diagnostics")
     private fun store(context:Context)=context.getSharedPreferences("air_bridge_test_backup",Context.MODE_PRIVATE)
     fun saveIfAbsent(context:Context) {
         if(store(context).contains("snapshot"))return
@@ -26,7 +26,8 @@ internal object TestPreferenceBackup {
         names.forEach { name ->
             val prefs=context.getSharedPreferences(name,Context.MODE_PRIVATE)
             val status=prefs.getString("last_status",null)
-            val edit=prefs.edit().clear();val values=root.getJSONObject(name)
+            val values=root.optJSONObject(name) ?: return@forEach
+            val edit=prefs.edit().clear()
             values.keys().forEach { key ->
                 val item=values.getJSONObject(key)
                 when(item.getString("type")) {

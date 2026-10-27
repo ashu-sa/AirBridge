@@ -33,6 +33,7 @@ import com.vibebridge.fitbit.ui.theme.FitbitVibeTheme
 
 class MainActivity : ComponentActivity() {
 
+    private var callDetectionStatus by mutableStateOf("")
     private var hasPhonePerm by mutableStateOf(false)
     private var hasBluetoothPerm by mutableStateOf(false)
     private var hasNotificationListenerPerm by mutableStateOf(false)
@@ -74,6 +75,7 @@ class MainActivity : ComponentActivity() {
             FitbitVibeTheme {
                 FitbitDashboardScreen(
                     hasPhonePerm = hasPhonePerm,
+                    callDetectionStatus = callDetectionStatus,
                     hasBluetoothPerm = hasBluetoothPerm,
                     hasNotificationListenerPerm = hasNotificationListenerPerm,
                     isBatteryOptimized = isBatteryOptimized,
@@ -104,6 +106,7 @@ class MainActivity : ComponentActivity() {
                     onToggleCallAlert = { enabled ->
                         isCallAlertEnabled = enabled
                         AirBridgeDeviceSettings.setCallAlertEnabled(this, enabled)
+                        com.vibebridge.fitbit.calls.PhoneCallMonitor.refresh(this)
                         if (!enabled) AirBridgeOneShotService.cancelCall(this)
                     },
                     onToggleNotificationAlert = { enabled ->
@@ -264,6 +267,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun refreshState() {
+        com.vibebridge.fitbit.calls.PhoneCallMonitor.refresh(this)
+        callDetectionStatus = com.vibebridge.fitbit.calls.CallEventHandler.lastDetectedLabel(this)
         hasPhonePerm = checkSelfPermission(Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED
 
         hasBluetoothPerm = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {

@@ -49,6 +49,7 @@ import com.vibebridge.fitbit.util.InstalledAppsManager
 @Composable
 fun FitbitDashboardScreen(
     hasPhonePerm: Boolean,
+    callDetectionStatus: String,
     hasBluetoothPerm: Boolean,
     hasNotificationListenerPerm: Boolean,
     isBatteryOptimized: Boolean,
@@ -190,6 +191,7 @@ fun FitbitDashboardScreen(
             selectedPattern = callPattern,
             isTesting = isTestingVibration && activeTestingAppPackage == null,
             hasPhonePerm = hasPhonePerm,
+            callDetectionStatus = callDetectionStatus,
             onToggle = onToggleCallAlert,
             onSelectPattern = onChangeCallPattern,
             onRequestPerm = onRequestPhonePerm,
@@ -530,6 +532,7 @@ fun ModernCallAlertCard(
     selectedPattern: AirHapticPattern,
     isTesting: Boolean,
     hasPhonePerm: Boolean,
+    callDetectionStatus: String,
     onToggle: (Boolean) -> Unit,
     onSelectPattern: (AirHapticPattern) -> Unit,
     onRequestPerm: () -> Unit,
@@ -542,6 +545,7 @@ fun ModernCallAlertCard(
         border = BorderStroke(1.dp, if (isEnabled) FlameOrange.copy(alpha = 0.4f) else SurfaceCardStroke)
     ) {
         Column(modifier = Modifier.padding(18.dp)) {
+            Text(callDetectionStatus, color = TextMuted, fontSize = 11.sp, modifier = Modifier.padding(bottom = 10.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,

@@ -19,6 +19,7 @@ class AirNotificationListenerService : NotificationListenerService() {
 
     override fun onListenerConnected() {
         super.onListenerConnected()
+        com.vibebridge.fitbit.calls.PhoneCallMonitor.refresh(this)
         com.vibebridge.fitbit.ble.BleSessionDiagnostics.listenerConnected = true
         Timber.i("Fitbit Vibe Notification Listener connected")
     }
