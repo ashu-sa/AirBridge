@@ -66,7 +66,8 @@ data class AirNotificationTrigger(
     val isCall: Boolean = false,
     val isContinuousCall: Boolean = false,
     val createdAtElapsed: Long = 0L,
-    val isManual: Boolean = false
+    val isManual: Boolean = false,
+    val appCallToken: Long? = null
 )
 
 /**
@@ -141,6 +142,7 @@ class AirBridgeOneShotService : Service() {
         val sourcePackage = intent?.getStringExtra(EXTRA_SOURCE_PACKAGE)
         val pattern = intent?.getStringExtra(EXTRA_PATTERN)?.let(AirHapticPattern::fromWireName)
         val isCall = intent?.getBooleanExtra(EXTRA_IS_CALL, false) ?: false
+        val appCallToken = intent?.getLongExtra(EXTRA_APP_CALL_TOKEN, 0L)?.takeIf { it != 0L }
         val isManual = intent?.getBooleanExtra(EXTRA_IS_MANUAL, false) ?: false
         val isContinuousCall = intent?.getBooleanExtra(EXTRA_IS_CONTINUOUS_CALL, false) ?: false
 
@@ -151,7 +153,7 @@ class AirBridgeOneShotService : Service() {
                 if (!processing) processNext()
                 return START_NOT_STICKY
             }
-            if (isCall) {
+            if (isCall || appCallToken != null) {
                 if (isContinuousCall) {
                     if (!isCallRinging) {
                         callRingStartTime = SystemClock.elapsedRealtime()
@@ -162,10 +164,10 @@ class AirBridgeOneShotService : Service() {
                 }
                 // Prioritize calls without allowing manual-test floods to grow the queue.
                 while (queue.size >= MAX_QUEUE_SIZE) queue.removeLast()
-                queue.addFirst(AirNotificationTrigger(sourcePackage, pattern, isCall = true,
-                    isContinuousCall = isContinuousCall, createdAtElapsed = SystemClock.elapsedRealtime(), isManual = isManual))
+                queue.addFirst(AirNotificationTrigger(sourcePackage, pattern, isCall = isCall,
+                    isContinuousCall = isContinuousCall, createdAtElapsed = SystemClock.elapsedRealtime(), isManual = isManual, appCallToken = appCallToken))
             } else {
-                queue.removeAll { !it.isCall && it.sourcePackage == sourcePackage }
+                queue.removeAll { !it.isCall && it.appCallToken == null && it.sourcePackage == sourcePackage }
                 if (queue.size < MAX_QUEUE_SIZE) {
                     queue.addLast(AirNotificationTrigger(sourcePackage, pattern,
                         createdAtElapsed = SystemClock.elapsedRealtime(), isManual = isManual))
@@ -333,12 +335,15 @@ class AirBridgeOneShotService : Service() {
     }
 
     private fun automaticFeatureEnabled(trigger: AirNotificationTrigger): Boolean = trigger.isManual ||
-        if (trigger.isCall) AirBridgeDeviceSettings.isCallAlertEnabled(this)
+        if (trigger.appCallToken != null) com.vibebridge.fitbit.calls.AppCallSettings.load(this).allows(trigger.sourcePackage)
+        else if (trigger.isCall) AirBridgeDeviceSettings.isCallAlertEnabled(this)
         else AirBridgeDeviceSettings.isNotificationAlertsEnabled(this)
 
     private fun canBegin(trigger: AirNotificationTrigger): Boolean = !stopRequested &&
         !BleSessionDiagnostics.cleanupFailed && automaticFeatureEnabled(trigger) &&
-        (!trigger.isContinuousCall || isCallRinging) && AlertScheduleStore.blockReason(this) == null
+        (!trigger.isContinuousCall || isCallRinging) && AlertScheduleStore.blockReason(this) == null &&
+        (trigger.appCallToken == null || com.vibebridge.fitbit.calls.AppCallSessions.notifications.active(
+            trigger.appCallToken, trigger.sourcePackage, SystemClock.elapsedRealtime()))
 
     private fun executeWithRetry(
         trigger: AirNotificationTrigger,
@@ -680,6 +685,7 @@ class AirBridgeOneShotService : Service() {
 
         private const val EXTRA_SOURCE_PACKAGE = "source_package"
         private const val EXTRA_PATTERN = "pattern"
+        private const val EXTRA_APP_CALL_TOKEN = "app_call_token"
         private const val EXTRA_IS_CALL = "is_call"
         private const val EXTRA_IS_MANUAL = "is_manual"
         private const val EXTRA_IS_CONTINUOUS_CALL = "extra_is_continuous_call"
@@ -735,6 +741,7 @@ class AirBridgeOneShotService : Service() {
             val intent = Intent(context, AirBridgeOneShotService::class.java)
                 .putExtra(EXTRA_SOURCE_PACKAGE, trigger.sourcePackage)
                 .putExtra(EXTRA_PATTERN, trigger.pattern.wireName)
+                .putExtra(EXTRA_APP_CALL_TOKEN, trigger.appCallToken ?: 0L)
                 .putExtra(EXTRA_IS_CALL, trigger.isCall)
                 .putExtra(EXTRA_IS_MANUAL, trigger.isManual)
                 .putExtra(EXTRA_IS_CONTINUOUS_CALL, trigger.isContinuousCall)

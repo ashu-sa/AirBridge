@@ -33,6 +33,7 @@ import com.vibebridge.fitbit.ui.theme.FitbitVibeTheme
 
 class MainActivity : ComponentActivity() {
 
+    private var appCallConfig by mutableStateOf(com.vibebridge.fitbit.calls.AppCallConfig())
     private var callDetectionStatus by mutableStateOf("")
     private var hasPhonePerm by mutableStateOf(false)
     private var hasBluetoothPerm by mutableStateOf(false)
@@ -76,6 +77,11 @@ class MainActivity : ComponentActivity() {
                 FitbitDashboardScreen(
                     hasPhonePerm = hasPhonePerm,
                     callDetectionStatus = callDetectionStatus,
+                    appCallConfig = appCallConfig,
+                    onChangeAppCalls = { updated ->
+                        com.vibebridge.fitbit.calls.AppCallSettings.save(this, updated)
+                        appCallConfig = updated
+                    },
                     hasBluetoothPerm = hasBluetoothPerm,
                     hasNotificationListenerPerm = hasNotificationListenerPerm,
                     isBatteryOptimized = isBatteryOptimized,
@@ -269,6 +275,7 @@ class MainActivity : ComponentActivity() {
     private fun refreshState() {
         com.vibebridge.fitbit.calls.PhoneCallMonitor.refresh(this)
         callDetectionStatus = com.vibebridge.fitbit.calls.CallEventHandler.lastDetectedLabel(this)
+        appCallConfig = com.vibebridge.fitbit.calls.AppCallSettings.load(this)
         hasPhonePerm = checkSelfPermission(Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED
 
         hasBluetoothPerm = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {

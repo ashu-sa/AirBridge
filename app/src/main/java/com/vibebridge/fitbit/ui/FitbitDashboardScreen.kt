@@ -50,6 +50,8 @@ import com.vibebridge.fitbit.util.InstalledAppsManager
 fun FitbitDashboardScreen(
     hasPhonePerm: Boolean,
     callDetectionStatus: String,
+    appCallConfig: com.vibebridge.fitbit.calls.AppCallConfig,
+    onChangeAppCalls: (com.vibebridge.fitbit.calls.AppCallConfig) -> Unit,
     hasBluetoothPerm: Boolean,
     hasNotificationListenerPerm: Boolean,
     isBatteryOptimized: Boolean,
@@ -209,6 +211,9 @@ fun FitbitDashboardScreen(
             }
         )
 
+        Spacer(modifier = Modifier.height(18.dp))
+
+        AppCallCard(appCallConfig, onChangeAppCalls, hasNotificationListenerPerm, onOpenNotificationListenerSettings)
         Spacer(modifier = Modifier.height(18.dp))
 
         // ==========================================
@@ -1566,7 +1571,13 @@ fun ModernPrivacyAccordionCard() {
                     PrivacyPillarCard(
                         icon = Icons.Rounded.PhoneInTalk,
                         title = "How does incoming call vibration work?",
-                        description = "Incoming calls use your selected pattern. Repeating alerts stop when Android reports that ringing has ended, or when the service reaches its safety limit. A current alert may finish before stopping."
+                        description = "SIM calls use your selected pattern. Repeating alerts stop when Android reports that ringing has ended, or when the service reaches its safety limit. A current alert may finish before stopping."
+                    )
+
+                    PrivacyPillarCard(
+                        icon = Icons.Rounded.VideoCall,
+                        title = "Can I get WhatsApp or other app-call alerts?",
+                        description = "Open App calls, enable it and select your calling apps. It sends one bounded burst for a recognized incoming-call notification, independently of SIM and message alerts. Some app versions or call types may not be detected. Meeting reminders and ongoing calls are excluded; no caller names or message text are used."
                     )
 
                     PrivacyPillarCard(
@@ -1710,7 +1721,8 @@ fun AppPickerDialog(
     slotNumber: Int,
     currentPackage: String,
     onDismiss: () -> Unit,
-    onSelectApp: (DeviceApp) -> Unit
+    onSelectApp: (DeviceApp) -> Unit,
+    pickerTitle: String? = null
 ) {
     val context = LocalContext.current
     var searchQuery by remember { mutableStateOf("") }
@@ -1747,7 +1759,7 @@ fun AppPickerDialog(
                 ) {
                     Column {
                         Text(
-                            text = "CHOOSE APP FOR SLOT #$slotNumber",
+                            text = pickerTitle ?: "CHOOSE APP FOR SLOT #$slotNumber",
                             color = CyberTeal,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
