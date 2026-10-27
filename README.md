@@ -22,7 +22,7 @@ The current implementation is built around the device identified in the app as *
     <td align="center"><img src="screenshots/schedule_editor.png" width="260" alt="Schedule editor with times and all seven weekdays"><br>Time and weekday editor</td>
   </tr>
   <tr>
-    <td align="center" colspan="2"><img src="screenshots/app_calls.png" width="300" alt="App-call alert controls"><br>Optional app-call alerts (connected-phone capture)</td>
+    <td align="center" colspan="2"><img src="screenshots/app_calls.png" width="300" alt="App-call alert controls"><br>App-call controls (1.2.1 icon-layout capture; current preview uses Priority Apps-style rows)</td>
   </tr>
 </table>
 

@@ -3,6 +3,9 @@ package com.vibebridge.fitbit.ui
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -12,6 +15,7 @@ import androidx.compose.material.icons.rounded.AddCircleOutline
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.VideoCall
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -57,22 +61,32 @@ fun AppCallCard(config: AppCallConfig, onChange: (AppCallConfig) -> Unit,
     }
     val slots = CallingAppSlots.resolve(config.slots, config.packages, apps.map { it.packageName }.toSet(),
         apps.filter { it.reason != CallingAppReason.DECLARED && it.reason != CallingAppReason.MANUAL }.map { it.packageName })
-    Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = SurfaceCard),
-        border = BorderStroke(1.dp, SurfaceCardStroke), modifier = Modifier.fillMaxWidth()) {
+    Card(shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = SurfaceCard),
+        border = BorderStroke(1.dp, if (!config.enabled) SurfaceCardStroke else if (hasNotificationAccess) CyberTeal.copy(alpha = 0.35f) else WarningAmber.copy(alpha = 0.5f)), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Rounded.VideoCall, contentDescription = null, tint = CyberTeal)
-                Spacer(Modifier.width(10.dp))
-                Column(Modifier.weight(1f)) {
-                    Text("App calls", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                    Text(if (config.enabled) "${config.packages.size} of 5 apps selected" else "Off • Up to 5 calling apps",
-                        color = TextMuted, fontSize = 11.sp)
+                Row(Modifier.weight(1f).clickable { expanded = !expanded }, verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(38.dp).clip(RoundedCornerShape(10.dp))
+                        .background(if (config.enabled) CyberTeal.copy(alpha = 0.15f) else SurfaceCardElevated)
+                        .border(1.dp, if (config.enabled) CyberTeal.copy(alpha = 0.35f) else SurfaceCardStroke, RoundedCornerShape(10.dp)),
+                        contentAlignment = Alignment.Center) {
+                        Icon(Icons.Rounded.VideoCall, contentDescription = null,
+                            tint = if (config.enabled) CyberTeal else TextMuted, modifier = Modifier.size(20.dp))
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("App calls", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                        Text(if (config.enabled) "${config.packages.size} of 5 apps on" else "App-call vibrations paused",
+                            color = if (config.enabled) TextMuted else WarningAmber, fontSize = 11.sp)
+                    }
                 }
                 Switch(config.enabled, onCheckedChange = { onChange(config.copy(enabled = it)); if (it) expanded = true },
+                    colors = SwitchDefaults.colors(checkedThumbColor = TextWhite, checkedTrackColor = CyberTeal,
+                        uncheckedTrackColor = SurfaceCardElevated, uncheckedThumbColor = TextDim),
                     modifier = Modifier.semantics { contentDescription = "Enable app call alerts" })
-                IconButton(onClick = { expanded = !expanded }) {
+                IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(28.dp)) {
                     Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
-                        contentDescription = if (expanded) "Collapse app calls" else "Expand app calls", tint = TextMuted)
+                        contentDescription = if (expanded) "Collapse app calls" else "Expand app calls", tint = CyberTeal, modifier = Modifier.size(20.dp))
                 }
             }
             AnimatedVisibility(expanded) {
@@ -84,25 +98,40 @@ fun AppCallCard(config: AppCallConfig, onChange: (AppCallConfig) -> Unit,
                         TextButton(onClick = onGrantAccess) { Text("Allow notification access") }
                     }
                     if (refreshing) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        repeat(CallingAppSlots.MAX) { index ->
-                            val pkg = slots.getOrNull(index)
-                            val app = apps.firstOrNull { it.packageName == pkg }
-                            Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                                Column(Modifier.fillMaxWidth().clickable(enabled = !refreshing) { editingSlot = index }
-                                    .semantics { contentDescription = "Change call app ${index + 1}" }.padding(vertical = 8.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally) {
-                                    if (pkg != null) AppRealIcon(pkg, app?.label ?: pkg, Modifier.size(40.dp))
-                                    else Icon(Icons.Rounded.AddCircleOutline, contentDescription = null, tint = TextMuted, modifier = Modifier.size(40.dp))
-                                    Spacer(Modifier.height(6.dp))
-                                    Text(app?.label ?: "Choose app", color = TextWhite, fontSize = 10.sp, maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis, modifier = Modifier.heightIn(min = 30.dp))
+                    repeat(CallingAppSlots.MAX) { index ->
+                        val pkg = slots.getOrNull(index)
+                        val app = apps.firstOrNull { it.packageName == pkg }
+                        val selected = pkg != null && pkg in config.packages
+                        Surface(shape = RoundedCornerShape(16.dp),
+                            color = if (selected) SurfaceCardElevated else SurfaceCardElevated.copy(alpha = 0.5f),
+                            border = BorderStroke(1.dp, if (selected) CyberTeal.copy(alpha = 0.35f) else SurfaceCardStroke),
+                            modifier = Modifier.fillMaxWidth()) {
+                            Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically) {
+                                Row(Modifier.weight(1f).clickable(enabled = !refreshing) { editingSlot = index }
+                                    .semantics { contentDescription = "Change call app ${index + 1}" },
+                                    verticalAlignment = Alignment.CenterVertically) {
+                                    if (pkg != null) AppRealIcon(pkg, app?.label ?: pkg, Modifier.size(44.dp))
+                                    else Icon(Icons.Rounded.AddCircleOutline, contentDescription = null, tint = TextMuted, modifier = Modifier.size(44.dp))
+                                    Spacer(Modifier.width(12.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(app?.label ?: "Choose app", color = if (selected) TextWhite else TextDim,
+                                                fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                                            Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = "Swap calling app",
+                                                tint = TextMuted, modifier = Modifier.padding(start = 4.dp).size(16.dp))
+                                        }
+                                        Text("Incoming calls", color = TextMuted, fontSize = 11.sp)
+                                    }
                                 }
-                                Checkbox(checked = pkg != null && pkg in config.packages, enabled = pkg != null && !refreshing,
+                                Switch(checked = selected, enabled = pkg != null && !refreshing,
                                     onCheckedChange = { enabled ->
                                         if (pkg != null) onChange(config.copy(slots = slots,
                                             packages = if (enabled) config.packages + pkg else config.packages - pkg))
-                                    }, modifier = Modifier.semantics { contentDescription = "Call alerts for ${app?.label ?: "empty slot"}" })
+                                    }, colors = SwitchDefaults.colors(checkedThumbColor = TextWhite, checkedTrackColor = CyberTeal,
+                                        uncheckedTrackColor = DarkBg, uncheckedThumbColor = TextDim),
+                                    modifier = Modifier.semantics { contentDescription = "Call alerts for ${app?.label ?: "empty slot"}" })
                             }
                         }
                     }
