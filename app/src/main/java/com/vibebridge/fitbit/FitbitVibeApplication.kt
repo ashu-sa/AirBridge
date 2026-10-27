@@ -1,22 +1,17 @@
 package com.vibebridge.fitbit
 
 import android.app.Application
-import com.vibebridge.fitbit.ble.AirBridgeRuntime
 import timber.log.Timber
 
 class FitbitVibeApplication : Application() {
     override fun onCreate() {
         super.onCreate()
-        Timber.plant(Timber.DebugTree())
+        if (BuildConfig.DEBUG) Timber.plant(Timber.DebugTree())
         io.reactivex.plugins.RxJavaPlugins.setErrorHandler { throwable ->
             val actual = if (throwable is io.reactivex.exceptions.UndeliverableException) throwable.cause ?: throwable else throwable
             Timber.w(actual, "Suppressed undeliverable RxJava exception: %s", actual.message)
         }
-        try {
-            AirBridgeRuntime.ensureInitialized(this)
-            Timber.i("Fitbit Vibe Application initialized successfully with GoldenGate runtime")
-        } catch (t: Throwable) {
-            Timber.e(t, "Failed to initialize GoldenGate runtime on application startup")
-        }
+        com.vibebridge.fitbit.calls.PhoneCallMonitor.refresh(this)
+        // Initialize Golden Gate lazily only when an allowed alert needs BLE.
     }
 }

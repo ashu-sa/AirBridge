@@ -6,24 +6,28 @@ import android.os.Build
 import android.os.SystemClock
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import com.vibebridge.fitbit.schedule.AlertScheduleStore
 import com.vibebridge.fitbit.AirBridgeNotificationSettings
 import timber.log.Timber
+import com.vibebridge.fitbit.calls.*
 
 /**
  * Intercepts user-selected app notifications (WhatsApp, Telegram, Slack, etc.)
  * and routes them directly to Fitbit Air via pure BLE.
  */
 class AirNotificationListenerService : NotificationListenerService() {
-    private val recentNotifications = LinkedHashMap<String, Long>()
-    private val lastAlertTimePerApp = HashMap<String, Long>()
-    private var lastGlobalAlertTime = 0L
+    private val alertGate = NotificationAlertGate()
 
     override fun onListenerConnected() {
         super.onListenerConnected()
+        com.vibebridge.fitbit.calls.PhoneCallMonitor.refresh(this)
+        com.vibebridge.fitbit.ble.BleSessionDiagnostics.listenerConnected = true
         Timber.i("Fitbit Vibe Notification Listener connected")
     }
 
     override fun onListenerDisconnected() {
+        AppCallSessions.notifications.clear()
+        com.vibebridge.fitbit.ble.BleSessionDiagnostics.listenerConnected = false
         Timber.w("Fitbit Vibe Notification Listener disconnected")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             requestRebind(ComponentName(this, AirNotificationListenerService::class.java))
@@ -34,6 +38,44 @@ class AirNotificationListenerService : NotificationListenerService() {
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         sbn ?: return
         if (sbn.packageName == packageName) return
+        com.vibebridge.fitbit.ble.BleSessionDiagnostics.lastObservedPackage = sbn.packageName
+        com.vibebridge.fitbit.ble.BleSessionDiagnostics.notificationsObserved.incrementAndGet()
+        val notification = sbn.notification ?: return
+        val callType = runCatching {
+            if (notification.extras.containsKey("android.callType")) notification.extras.getInt("android.callType", -1) else null
+        }.getOrDefault(-1)
+        val call = runCatching { CallNotificationMetadata(notification.category, callType,
+            notification.fullScreenIntent != null, notification.actions?.size ?: 0,
+            notification.flags and Notification.FLAG_INSISTENT != 0,
+            notification.flags and Notification.FLAG_GROUP_SUMMARY != 0,
+            notification.extras.getBoolean(Notification.EXTRA_SHOW_CHRONOMETER, false))
+        }.getOrElse { CallNotificationMetadata(callType = -1) }
+        if (call.isCallRelated) {
+            if (call.isIncoming()) {
+                CallingAppsDiscovery.recordCallNotification(this, sbn.packageName)
+            }
+            if (!call.isIncoming()) {
+                AppCallSessions.notifications.end(sbn.key)
+                return
+            }
+            val config = AppCallSettings.load(this)
+            if (!config.allows(sbn.packageName)) {
+                AppCallSessions.notifications.end(sbn.key)
+                return
+            }
+            if (AlertScheduleStore.blockReason(this) != null) return
+            val token = AppCallSessions.notifications.begin(sbn.key, sbn.packageName, SystemClock.elapsedRealtime()) ?: return
+            com.vibebridge.fitbit.ble.BleSessionDiagnostics.appCallAttempts.incrementAndGet()
+            AirBridgeOneShotService.enqueue(this, AirNotificationTrigger(sbn.packageName, config.pattern, appCallToken = token))
+            return // A call never also takes the ordinary-message route.
+        }
+
+        AppCallSessions.notifications.end(sbn.key)
+        if (AlertScheduleStore.blockReason(this) != null) {
+            com.vibebridge.fitbit.ble.BleSessionDiagnostics.lastScheduleBlockedPackage = sbn.packageName
+            com.vibebridge.fitbit.ble.BleSessionDiagnostics.notificationsScheduleBlocked.incrementAndGet()
+            return
+        }
 
         if (!com.vibebridge.fitbit.ble.AirBridgeDeviceSettings.isNotificationAlertsEnabled(this)) {
             Timber.d("Notification vibration alerts globally disabled by user")
@@ -46,24 +88,16 @@ class AirNotificationListenerService : NotificationListenerService() {
             return
         }
 
-        val notification = sbn.notification ?: return
         if (notification.flags and Notification.FLAG_GROUP_SUMMARY != 0) return
         if (notification.flags and Notification.FLAG_ONGOING_EVENT != 0) return
 
-        val extras = notification.extras
-        val contentSignature = listOf(
-            sbn.packageName,
-            sbn.key ?: "${sbn.id}:${sbn.tag.orEmpty()}",
-            extras?.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty(),
-            extras?.getCharSequence(Notification.EXTRA_TEXT)?.toString().orEmpty(),
-            extras?.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString().orEmpty()
-        ).joinToString("\u0000")
-
-        if (isRecentDuplicate(contentSignature)) return
-        if (isRateLimited(rule.packageName)) return
+        val signature = "${sbn.key}:${sbn.postTime}"
+        val now = SystemClock.elapsedRealtime()
+        if (!alertGate.canAlert(signature, rule.packageName, now)) return
 
         val trigger = AirNotificationTrigger(rule.packageName, rule.pattern, isCall = false)
         val accepted = AirBridgeOneShotService.enqueue(this, trigger)
+        if (accepted) alertGate.recordAccepted(signature, rule.packageName, now)
         Timber.i(
             "Notification intercepted pkg=%s pattern=%s accepted=%s",
             rule.packageName,
@@ -72,43 +106,14 @@ class AirNotificationListenerService : NotificationListenerService() {
         )
     }
 
-    private fun isRateLimited(packageName: String): Boolean {
-        val now = SystemClock.elapsedRealtime()
-        synchronized(lastAlertTimePerApp) {
-            val lastApp = lastAlertTimePerApp[packageName] ?: 0L
-            if (now - lastApp < PER_APP_COOLDOWN_MILLIS) {
-                Timber.d("Rate limiting notification buzz for %s (app cooldown active)", packageName)
-                return true
-            }
-            if (now - lastGlobalAlertTime < GLOBAL_COOLDOWN_MILLIS) {
-                Timber.d("Rate limiting notification buzz (global cooldown active)")
-                return true
-            }
-            lastAlertTimePerApp[packageName] = now
-            lastGlobalAlertTime = now
-            return false
-        }
+    override fun onNotificationRemoved(sbn: StatusBarNotification?) {
+        sbn?.let { AppCallSessions.notifications.end(it.key) }
     }
 
-    private fun isRecentDuplicate(signature: String): Boolean {
-        val now = SystemClock.elapsedRealtime()
-        synchronized(recentNotifications) {
-            recentNotifications.entries.removeAll { now - it.value > DUPLICATE_WINDOW_MILLIS }
-            val previous = recentNotifications[signature]
-            if (previous != null && now - previous < DUPLICATE_WINDOW_MILLIS) return true
-            recentNotifications[signature] = now
-            while (recentNotifications.size > MAX_RECENT_NOTIFICATIONS) {
-                val firstKey = recentNotifications.keys.firstOrNull() ?: break
-                recentNotifications.remove(firstKey)
-            }
-        }
-        return false
+    override fun onDestroy() {
+        AppCallSessions.notifications.clear()
+        com.vibebridge.fitbit.ble.BleSessionDiagnostics.listenerConnected = false
+        super.onDestroy()
     }
 
-    companion object {
-        private const val DUPLICATE_WINDOW_MILLIS = 1_500L
-        private const val PER_APP_COOLDOWN_MILLIS = 3_000L
-        private const val GLOBAL_COOLDOWN_MILLIS = 1_500L
-        private const val MAX_RECENT_NOTIFICATIONS = 512
-    }
 }
