@@ -4,7 +4,7 @@
 
 AirBridge is an independent Android app for Google Fitbit Air. It sends distinct vibration patterns over Bluetooth so you can recognise an alert without checking your phone.
 
-[Download 1.2.3 APK](https://github.com/ashu-sa/AirBridge/releases/download/v1.2.3/AirBridge-1.2.3.apk) · [Report an issue](https://github.com/ashu-sa/AirBridge/issues)
+[Download 1.2.2 APK](https://github.com/ashu-sa/AirBridge/releases/download/v1.2.2/AirBridge-1.2.2.apk) · [Report an issue](https://github.com/ashu-sa/AirBridge/issues)
 
 ## Features
 
