@@ -20,3 +20,7 @@ The six routing integration checks in validation-1.2.0.md apply to the earlier p
 The App calls card now uses the same header icon tile, rounded app rows, teal selection borders, app-name replacement affordance and per-app switches as Priority Apps. The bounded call pattern remains shared below the rows. This is a presentation change; the five-slot model and alert routing are unchanged.
 
 The row-style update builds and passes lint (zero errors, 110 warnings) and was installed over the existing phone build. The phone was locked during the subsequent visual check; no settings were changed or physical alerts triggered for this styling update. The earlier connected-phone screenshot shows the previous icon layout.
+
+## Collapsed icons and band icon
+
+Collapsed App calls now shows a horizontal strip of selected app icons with the same 46dp tiles and selection dots as Priority Apps. Tapping an icon expands the controls. No selection is required to render the empty-state prompt. The generic watch glyph in Your Band is replaced by an original screenless Fitbit Air tracker/loop illustration, following the form described in Google’s product introduction: https://blog.google/products-and-platforms/devices/fitbit/fitbit-air/. The illustration is an app asset, not an official Google logo.

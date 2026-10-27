@@ -27,6 +27,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.res.painterResource
+import com.vibebridge.fitbit.R
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontFamily
@@ -449,7 +451,7 @@ fun ModernHeaderCard(
     ) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Rounded.Watch, contentDescription = null, tint = CyberTeal, modifier = Modifier.size(22.dp))
+                Icon(painterResource(R.drawable.ic_fitbit_air), contentDescription = "Google Fitbit Air", tint = CyberTeal, modifier = Modifier.size(26.dp))
                 Spacer(Modifier.width(10.dp))
                 Text("YOUR BAND", color = TextMuted, fontSize = 11.sp, letterSpacing = 1.sp, modifier = Modifier.weight(1f))
                 Text(if (isArmed) "Saved" else "Setup needed", color = if (isArmed) EmeraldText else AmberText, fontSize = 12.sp)

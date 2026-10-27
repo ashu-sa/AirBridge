@@ -8,8 +8,10 @@ import androidx.compose.foundation.border
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AddCircleOutline
 import androidx.compose.material.icons.rounded.ExpandLess
@@ -87,6 +89,30 @@ fun AppCallCard(config: AppCallConfig, onChange: (AppCallConfig) -> Unit,
                 IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(28.dp)) {
                     Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
                         contentDescription = if (expanded) "Collapse app calls" else "Expand app calls", tint = CyberTeal, modifier = Modifier.size(20.dp))
+                }
+            }
+            AnimatedVisibility(!expanded) {
+                val selectedApps = (config.slots + CallingAppSlots.preferred + config.packages.sorted())
+                    .filter { it in config.packages }.distinct().take(CallingAppSlots.MAX)
+                if (selectedApps.isEmpty()) {
+                    Text("No calling apps selected", color = TextMuted, fontSize = 12.sp,
+                        modifier = Modifier.clickable { expanded = true }.padding(vertical = 4.dp))
+                } else {
+                    LazyRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        items(selectedApps, key = { it }) { pkg ->
+                            val label = apps.firstOrNull { it.packageName == pkg }?.label
+                                ?: com.vibebridge.fitbit.util.InstalledAppsManager.getAppName(context, pkg)
+                            Box(Modifier.size(46.dp).clip(RoundedCornerShape(12.dp)).background(SurfaceCardElevated)
+                                .border(1.dp, CyberTeal.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
+                                .clickable { expanded = true }.semantics { contentDescription = "$label call alerts; expand app calls" },
+                                contentAlignment = Alignment.Center) {
+                                AppRealIcon(pkg, label, Modifier.size(32.dp))
+                                Box(Modifier.align(Alignment.TopEnd).padding(4.dp).size(7.dp)
+                                    .clip(CircleShape).background(NeonEmerald))
+                            }
+                        }
+                    }
                 }
             }
             AnimatedVisibility(expanded) {
