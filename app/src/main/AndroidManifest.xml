@@ -28,6 +28,7 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent>
+        <intent><action android:name="android.telecom.ConnectionService" /></intent>
         <package android:name="com.fitbit.FitbitMobile" />
         <package android:name="com.whatsapp" />
         <package android:name="com.Slack" />

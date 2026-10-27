@@ -22,7 +22,7 @@ The current implementation is built around the device identified in the app as *
     <td align="center"><img src="screenshots/schedule_editor.png" width="260" alt="Schedule editor with times and all seven weekdays"><br>Time and weekday editor</td>
   </tr>
   <tr>
-    <td align="center" colspan="2"><img src="screenshots/app_calls.png" width="300" alt="App-call controls with WhatsApp, Slack, Google Meet, Zoom, custom app picker and bounded pattern selection"><br>Optional app-call alerts (emulator capture)</td>
+    <td align="center" colspan="2"><img src="screenshots/app_calls.png" width="300" alt="App-call alert controls"><br>Optional app-call alerts (connected-phone capture)</td>
   </tr>
 </table>
 
@@ -30,7 +30,7 @@ Screenshots show the updated Android interface, including emulator captures of t
 
 ## Features
 
-- **App-call alerts (opt-in):** Separate controls for WhatsApp, Slack, Google Meet and Zoom, plus a picker for other installed apps. Sends one bounded burst for a recognizable incoming-call notification; compatibility depends on the app and call type.
+- **App-call alerts (opt-in):** Up to five installed calling apps with real app icons. WhatsApp, Instagram and Telegram appear first when installed; tap an icon to replace a slot. Discovery uses known apps, declared calling support and incoming-call notifications observed locally. Sends one bounded burst for a recognizable incoming-call notification; compatibility depends on the app and call type.
 - **Incoming SIM call alerts:** Choose Urgent or Continuous alert modes.
 - **Optional alert schedules:** Editable Workout and Sleep presets, selected weekdays and overnight windows. Scheduling starts off and expands above the FAQ.
 - **Priority app rules:** Configure up to five app rules with individual vibration patterns.
@@ -108,9 +108,9 @@ The alert path is designed around local phone-to-band communication. A permissio
 
 ## Development validation
 
-Preview 1.2.0 has 59 passing unit tests and a successful debug build and Android lint run (zero errors; warnings remain). On preview 1.1.0, a Samsung SM-M346B running Android 16 completed controlled tests covering all five alert patterns, original-setting restoration, release between repeating call bursts, schedule closure, recovery, and a real Android notification from a separate test sender. A simulated phone-state event also completed Continuous ring and stopped on answer. This does not establish real carrier-call delivery. Preview 1.1.1 adds event-driven phone-state callbacks and a last-detected-call timestamp after a reported real-call failure; an emulator-generated incoming call reached the callback, but the update still needs a physical-phone retest. See the [1.1.0 validation notes](docs/validation-1.1.0.md) and [call-detection follow-up](docs/validation-1.1.1.md) for the method and limits.
+Preview 1.2.1 has 75 passing unit tests and a successful debug build and Android lint run (zero errors; warnings remain). On preview 1.1.0, a Samsung SM-M346B running Android 16 completed controlled tests covering all five alert patterns, original-setting restoration, release between repeating call bursts, schedule closure, recovery, and a real Android notification from a separate test sender. A simulated phone-state event also completed Continuous ring and stopped on answer. This does not establish real carrier-call delivery. Preview 1.1.1 adds event-driven phone-state callbacks and a last-detected-call timestamp after a reported real-call failure; an emulator-generated incoming call reached the callback, but the update still needs a physical-phone retest. See the [1.1.0 validation notes](docs/validation-1.1.0.md) and [call-detection follow-up](docs/validation-1.1.1.md) for the method and limits.
 
-App-call routing has six passing emulator integration checks using a separate notification sender, including duplicate suppression, ongoing-call exclusion, scheduling, settings and cancellation before BLE starts. Live WhatsApp, Slack, Meet and Zoom calls have not been verified. See [app-call validation](docs/validation-1.2.0.md).
+App-call routing has six passing emulator integration checks using a separate notification sender, including duplicate suppression, ongoing-call exclusion, scheduling, settings and cancellation before BLE starts. Live WhatsApp, Slack, Meet and Zoom calls have not been verified. See [app-call validation](docs/validation-1.2.0.md) and [installed-app discovery validation](docs/validation-1.2.1.md).
 
 This is limited development testing, not a compatibility certification. Secure-session retries were observed and an earlier cleanup hang was addressed. Real incoming-call delivery, battery drain and uninterrupted companion-app sync remain unverified. Public releases require a private release signing key; the project no longer signs release builds with the debug key.
 

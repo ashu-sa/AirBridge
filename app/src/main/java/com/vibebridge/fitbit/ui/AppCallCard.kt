@@ -2,9 +2,13 @@ package com.vibebridge.fitbit.ui
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AddCircleOutline
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.VideoCall
@@ -14,23 +18,45 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.vibebridge.fitbit.AirBridgeNotificationSettings
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.vibebridge.fitbit.calls.*
 import com.vibebridge.fitbit.ui.theme.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Composable
 fun AppCallCard(config: AppCallConfig, onChange: (AppCallConfig) -> Unit,
                 hasNotificationAccess: Boolean, onGrantAccess: () -> Unit) {
     val context = LocalContext.current
     var expanded by rememberSaveable { mutableStateOf(false) }
-    var showPicker by remember { mutableStateOf(false) }
+    var editingSlot by remember { mutableStateOf<Int?>(null) }
     var patternMenu by remember { mutableStateOf(false) }
-    val suggestedPackages = AppCallSettings.suggested.flatMap { it.packages }.toSet()
+    var apps by remember { mutableStateOf<List<DetectedCallingApp>>(emptyList()) }
+    var refreshing by remember { mutableStateOf(false) }
+    var refreshVersion by remember { mutableStateOf(0) }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) refreshVersion++ }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
+    LaunchedEffect(expanded, refreshVersion, config.packages, config.slots) {
+        if (expanded) {
+            refreshing = true
+            apps = withContext(Dispatchers.IO) { CallingAppsDiscovery.find(context, config.packages + config.slots) }
+            refreshing = false
+        }
+    }
+    val slots = CallingAppSlots.resolve(config.slots, config.packages, apps.map { it.packageName }.toSet(),
+        apps.filter { it.reason != CallingAppReason.DECLARED && it.reason != CallingAppReason.MANUAL }.map { it.packageName })
     Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = SurfaceCard),
         border = BorderStroke(1.dp, SurfaceCardStroke), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -39,7 +65,7 @@ fun AppCallCard(config: AppCallConfig, onChange: (AppCallConfig) -> Unit,
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
                     Text("App calls", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                    Text(if (config.enabled) "Incoming calls from selected apps" else "Off • WhatsApp, Slack, Meet, Zoom & more",
+                    Text(if (config.enabled) "${config.packages.size} of 5 apps selected" else "Off • Up to 5 calling apps",
                         color = TextMuted, fontSize = 11.sp)
                 }
                 Switch(config.enabled, onCheckedChange = { onChange(config.copy(enabled = it)); if (it) expanded = true },
@@ -51,50 +77,80 @@ fun AppCallCard(config: AppCallConfig, onChange: (AppCallConfig) -> Unit,
             }
             AnimatedVisibility(expanded) {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("One alert burst per recognized incoming call, separate from SIM calls and message alerts. Your schedule and sync pause still apply.",
+                    Text("Select apps for incoming-call alerts. Tap an icon or name to change an app.",
                         color = TextMuted, fontSize = 12.sp, lineHeight = 18.sp)
                     if (!hasNotificationAccess) {
                         Text("Notification access is required for app calls.", color = AmberText, fontSize = 12.sp)
                         TextButton(onClick = onGrantAccess) { Text("Allow notification access") }
                     }
-                    AppCallSettings.suggested.forEach { app ->
-                        val selected = app.packages.any { it in config.packages }
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text(app.label, color = TextWhite, modifier = Modifier.weight(1f))
-                            Switch(selected, onCheckedChange = { enabled ->
-                                val updated = if (enabled) config.packages + app.packages else config.packages - app.packages
-                                if (updated.size <= AppCallSettings.MAX_APPS) onChange(config.copy(packages = updated))
-                            }, modifier = Modifier.semantics { contentDescription = "Call alerts for ${app.label}" })
-                        }
-                    }
-                    (config.packages - suggestedPackages).sorted().forEach { pkg ->
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text(AirBridgeNotificationSettings.getAppName(context, pkg), color = TextWhite, modifier = Modifier.weight(1f))
-                            TextButton(onClick = { onChange(config.copy(packages = config.packages - pkg)) }) { Text("Remove") }
-                        }
-                    }
-                    TextButton(onClick = { showPicker = true }, enabled = config.packages.size < AppCallSettings.MAX_APPS,
-                        modifier = Modifier.fillMaxWidth()) { Text("Add another calling app") }
-                    Box {
-                        OutlinedButton(onClick = { patternMenu = true }) { Text("Call pattern: ${config.pattern.displayName}") }
-                        DropdownMenu(expanded = patternMenu, onDismissRequest = { patternMenu = false }) {
-                            AppCallSettings.patterns.forEach { pattern ->
-                                DropdownMenuItem(text = { Text(pattern.displayName) }, onClick = {
-                                    onChange(config.copy(pattern = pattern)); patternMenu = false
-                                })
+                    if (refreshing) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        repeat(CallingAppSlots.MAX) { index ->
+                            val pkg = slots.getOrNull(index)
+                            val app = apps.firstOrNull { it.packageName == pkg }
+                            Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Column(Modifier.fillMaxWidth().clickable(enabled = !refreshing) { editingSlot = index }
+                                    .semantics { contentDescription = "Change call app ${index + 1}" }.padding(vertical = 8.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally) {
+                                    if (pkg != null) AppRealIcon(pkg, app?.label ?: pkg, Modifier.size(40.dp))
+                                    else Icon(Icons.Rounded.AddCircleOutline, contentDescription = null, tint = TextMuted, modifier = Modifier.size(40.dp))
+                                    Spacer(Modifier.height(6.dp))
+                                    Text(app?.label ?: "Choose app", color = TextWhite, fontSize = 10.sp, maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis, modifier = Modifier.heightIn(min = 30.dp))
+                                }
+                                Checkbox(checked = pkg != null && pkg in config.packages, enabled = pkg != null && !refreshing,
+                                    onCheckedChange = { enabled ->
+                                        if (pkg != null) onChange(config.copy(slots = slots,
+                                            packages = if (enabled) config.packages + pkg else config.packages - pkg))
+                                    }, modifier = Modifier.semantics { contentDescription = "Call alerts for ${app?.label ?: "empty slot"}" })
                             }
                         }
                     }
-                    if (config.enabled && config.packages.isEmpty()) Text("Choose at least one calling app.", color = AmberText, fontSize = 12.sp)
-                    Text("Requires a recognizable incoming-call notification. Some app versions or call types may not be detected. Meeting reminders and ongoing calls don't trigger call alerts.",
+                    Box {
+                        OutlinedButton(onClick = { patternMenu = true }) { Text("Call pattern: ${config.pattern.displayName}") }
+                        DropdownMenu(expanded = patternMenu, onDismissRequest = { patternMenu = false }) {
+                            AppCallSettings.patterns.forEach { pattern -> DropdownMenuItem(text = { Text(pattern.displayName) }, onClick = {
+                                onChange(config.copy(pattern = pattern)); patternMenu = false
+                            }) }
+                        }
+                    }
+                    if (config.enabled && config.packages.isEmpty()) Text("Select at least one app above.", color = AmberText, fontSize = 12.sp)
+                    Text("One burst per recognized incoming call. Your schedule and sync pause apply. Detection may miss some apps or call types; meeting reminders and ongoing calls are excluded.",
                         color = TextMuted, fontSize = 11.sp, lineHeight = 16.sp)
                 }
             }
         }
     }
-    if (showPicker) AppPickerDialog(slotNumber = 0, currentPackage = "", pickerTitle = "ADD A CALLING APP",
-        onDismiss = { showPicker = false }, onSelectApp = { app ->
-            if (config.packages.size < AppCallSettings.MAX_APPS) onChange(config.copy(packages = config.packages + app.packageName))
-            showPicker = false
+    editingSlot?.let { index ->
+        CallingAppPicker(apps, onDismiss = { editingSlot = null }, onSelect = { pkg ->
+            val (updated, enabled) = CallingAppSlots.replace(slots, config.packages, index, pkg)
+            onChange(config.copy(slots = updated, packages = enabled)); editingSlot = null
         })
+    }
+}
+
+@Composable
+private fun CallingAppPicker(apps: List<DetectedCallingApp>, onDismiss: () -> Unit, onSelect: (String) -> Unit) {
+    var search by remember { mutableStateOf("") }
+    val filtered = apps.filter { it.label.contains(search, true) || it.packageName.contains(search, true) }
+        .sortedWith(compareBy<DetectedCallingApp> { it.reason == CallingAppReason.DECLARED }.thenBy { it.label.lowercase() })
+    AlertDialog(onDismissRequest = onDismiss, containerColor = SurfaceCard, title = { Text("Change calling app") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(search, onValueChange = { search = it }, singleLine = true, label = { Text("Search installed apps") })
+                Text("Only installed calling-app candidates appear. Declared support can come from a library and is unverified.", color = TextMuted, fontSize = 11.sp)
+                LazyColumn(Modifier.heightIn(max = 360.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(filtered, key = { it.packageName }) { app ->
+                        Surface(onClick = { onSelect(app.packageName) }, color = SurfaceCardElevated, shape = RoundedCornerShape(12.dp)) {
+                            Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                AppRealIcon(app.packageName, app.label, Modifier.size(32.dp))
+                                Spacer(Modifier.width(10.dp))
+                                Column { Text(app.label, color = TextWhite);Text(app.reason.label, color = TextMuted, fontSize = 11.sp) }
+                            }
+                        }
+                    }
+                }
+                if (filtered.isEmpty()) Text("No matching calling apps detected.", color = TextMuted)
+            }
+        }, confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } })
 }

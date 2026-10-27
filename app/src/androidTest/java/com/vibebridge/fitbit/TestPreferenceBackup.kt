@@ -6,7 +6,7 @@ import org.json.JSONArray
 
 /** Test-only, durable user-preference backup so a deliberate process kill cannot lose settings. */
 internal object TestPreferenceBackup {
-    private val names=listOf("air_bridge_device","air_bridge_schedule","air_notification_bridge","air_bridge_call_diagnostics","air_bridge_app_calls")
+    private val names=listOf("air_bridge_device","air_bridge_schedule","air_notification_bridge","air_bridge_call_diagnostics","air_bridge_app_calls","air_bridge_call_discovery")
     private fun store(context:Context)=context.getSharedPreferences("air_bridge_test_backup",Context.MODE_PRIVATE)
     fun saveIfAbsent(context:Context) {
         if(store(context).contains("snapshot"))return

@@ -51,6 +51,9 @@ class AirNotificationListenerService : NotificationListenerService() {
             notification.extras.getBoolean(Notification.EXTRA_SHOW_CHRONOMETER, false))
         }.getOrElse { CallNotificationMetadata(callType = -1) }
         if (call.isCallRelated) {
+            if (call.isIncoming()) {
+                CallingAppsDiscovery.recordCallNotification(this, sbn.packageName)
+            }
             if (!call.isIncoming()) {
                 AppCallSessions.notifications.end(sbn.key)
                 return
