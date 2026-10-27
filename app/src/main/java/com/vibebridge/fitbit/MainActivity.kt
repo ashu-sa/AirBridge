@@ -243,7 +243,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun openNotificationListenerSettings() {
-        startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+        if (BuildConfig.NOTIFICATION_FEATURES) startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
     }
 
     override fun onStart() {
@@ -275,7 +275,7 @@ class MainActivity : ComponentActivity() {
     private fun refreshState() {
         com.vibebridge.fitbit.calls.PhoneCallMonitor.refresh(this)
         callDetectionStatus = com.vibebridge.fitbit.calls.CallEventHandler.lastDetectedLabel(this)
-        appCallConfig = com.vibebridge.fitbit.calls.AppCallSettings.load(this)
+        appCallConfig = if (BuildConfig.NOTIFICATION_FEATURES) com.vibebridge.fitbit.calls.AppCallSettings.load(this) else com.vibebridge.fitbit.calls.AppCallConfig()
         hasPhonePerm = checkSelfPermission(Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED
 
         hasBluetoothPerm = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -285,7 +285,7 @@ class MainActivity : ComponentActivity() {
             checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         }
 
-        hasNotificationListenerPerm = NotificationManagerCompat.getEnabledListenerPackages(this).contains(packageName)
+        hasNotificationListenerPerm = BuildConfig.NOTIFICATION_FEATURES && NotificationManagerCompat.getEnabledListenerPackages(this).contains(packageName)
 
         val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
         isBatteryOptimized = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -301,7 +301,7 @@ class MainActivity : ComponentActivity() {
         isCallAlertEnabled = AirBridgeDeviceSettings.isCallAlertEnabled(this)
         isNotificationAlertEnabled = AirBridgeDeviceSettings.isNotificationAlertsEnabled(this)
         callPattern = AirBridgeDeviceSettings.loadCallPattern(this)
-        notificationRules = AirBridgeNotificationSettings.loadRules(this)
+        notificationRules = if (BuildConfig.NOTIFICATION_FEATURES) AirBridgeNotificationSettings.loadRules(this) else emptyList()
         alertSchedule = AlertScheduleStore.load(this)
         syncPaused = AlertScheduleStore.isSyncPaused(this)
         isVibratingActive = AirBridgeOneShotService.isVibrating

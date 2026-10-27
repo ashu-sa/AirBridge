@@ -11,12 +11,25 @@ android {
         applicationId = "com.vibebridge.fitbit"
         minSdk = 26
         targetSdk = 34
-        versionCode = 8
-        versionName = "1.2.3"
+        versionCode = 9
+        versionName = "1.3.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {
             abiFilters.add("arm64-v8a")
+        }
+    }
+
+    flavorDimensions += "edition"
+    productFlavors {
+        create("full") {
+            dimension = "edition"
+            buildConfigField("boolean", "NOTIFICATION_FEATURES", "true")
+        }
+        create("calls") {
+            dimension = "edition"
+            applicationIdSuffix = ".calls"
+            buildConfigField("boolean", "NOTIFICATION_FEATURES", "false")
         }
     }
 

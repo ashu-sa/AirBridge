@@ -93,11 +93,16 @@ class AirBridgeOneShotService : Service() {
     private var callRingStartTime = 0L
     private var callRingBurstCount = 0
 
+    // AGP 8.3's flavor lint misses the shared manifest declaration. Both packaged
+    // editions declare connectedDevice; EditionContractTest checks the installed type.
+    @android.annotation.SuppressLint("ForegroundServiceType")
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
         try {
-            startForeground(NOTIFICATION_ID, buildNotification("Ready for on-demand BLE haptics"))
+            androidx.core.app.ServiceCompat.startForeground(this, NOTIFICATION_ID,
+                buildNotification("Ready for on-demand BLE haptics"),
+                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
             foregroundReady = true
         } catch (error: Exception) {
             AirBridgeDeviceSettings.saveLastStatus(this, "Unable to start alerts. Check Nearby devices permission and reopen AirBridge.")
@@ -335,9 +340,9 @@ class AirBridgeOneShotService : Service() {
     }
 
     private fun automaticFeatureEnabled(trigger: AirNotificationTrigger): Boolean = trigger.isManual ||
-        if (trigger.appCallToken != null) com.vibebridge.fitbit.calls.AppCallSettings.load(this).allows(trigger.sourcePackage)
+        if (trigger.appCallToken != null) com.vibebridge.fitbit.BuildConfig.NOTIFICATION_FEATURES && com.vibebridge.fitbit.calls.AppCallSettings.load(this).allows(trigger.sourcePackage)
         else if (trigger.isCall) AirBridgeDeviceSettings.isCallAlertEnabled(this)
-        else AirBridgeDeviceSettings.isNotificationAlertsEnabled(this)
+        else com.vibebridge.fitbit.BuildConfig.NOTIFICATION_FEATURES && AirBridgeDeviceSettings.isNotificationAlertsEnabled(this)
 
     private fun canBegin(trigger: AirNotificationTrigger): Boolean = !stopRequested &&
         !BleSessionDiagnostics.cleanupFailed && automaticFeatureEnabled(trigger) &&

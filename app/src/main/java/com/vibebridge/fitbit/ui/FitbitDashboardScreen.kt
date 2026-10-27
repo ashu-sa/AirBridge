@@ -29,6 +29,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.res.painterResource
 import com.vibebridge.fitbit.R
+import com.vibebridge.fitbit.BuildConfig
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontFamily
@@ -143,7 +144,7 @@ fun FitbitDashboardScreen(
             }
             Spacer(Modifier.width(12.dp))
             Column {
-                Text("AirBridge", color = TextWhite, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+                Text(if (BuildConfig.NOTIFICATION_FEATURES) "AirBridge Full" else "AirBridge Calls", color = TextWhite, fontSize = 28.sp, fontWeight = FontWeight.Bold)
                 Text("Your alerts, a little closer.", color = TextMuted, fontSize = 13.sp)
             }
         }
@@ -215,6 +216,7 @@ fun FitbitDashboardScreen(
 
         Spacer(modifier = Modifier.height(18.dp))
 
+        if (BuildConfig.NOTIFICATION_FEATURES) {
         AppCallCard(appCallConfig, onChangeAppCalls, hasNotificationListenerPerm, onOpenNotificationListenerSettings)
         Spacer(modifier = Modifier.height(18.dp))
 
@@ -246,6 +248,8 @@ fun FitbitDashboardScreen(
         )
 
         Spacer(modifier = Modifier.height(18.dp))
+
+        }
 
         // ==========================================
         // 4. BETTER SYSTEM PERMISSIONS & READINESS
@@ -1160,10 +1164,10 @@ fun ModernPermissionsCard(
     onOpenListenerSettings: () -> Unit
 ) {
     var isExpanded by rememberSaveable { mutableStateOf(false) }
-    val allReady = hasPhonePerm && hasBluetoothPerm && hasListenerPerm && !isBatteryOptimized
+    val allReady = hasPhonePerm && hasBluetoothPerm && (!BuildConfig.NOTIFICATION_FEATURES || hasListenerPerm) && !isBatteryOptimized
     val grantedCount = (if (hasBluetoothPerm) 1 else 0) +
             (if (hasPhonePerm) 1 else 0) +
-            (if (hasListenerPerm) 1 else 0) +
+            (if (BuildConfig.NOTIFICATION_FEATURES && hasListenerPerm) 1 else 0) +
             (if (!isBatteryOptimized) 1 else 0)
 
     Card(
@@ -1216,7 +1220,7 @@ fun ModernPermissionsCard(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = if (allReady) "Required access is enabled" else "$grantedCount of 4 granted",
+                            text = if (allReady) "Required access is enabled" else "$grantedCount of ${if (BuildConfig.NOTIFICATION_FEATURES) 4 else 3} granted",
                             color = if (allReady) EmeraldText else AmberText,
                             fontSize = 11.sp
                         )
@@ -1287,6 +1291,7 @@ fun ModernPermissionsCard(
                         icon = Icons.Rounded.PhoneInTalk,
                         onClick = { if (!hasPhonePerm) onRequestPhonePerm() else isExpanded = true }
                     )
+                    if (BuildConfig.NOTIFICATION_FEATURES) {
                     PermissionCompactChip(
                         modifier = Modifier.weight(1f),
                         label = "Notifs",
@@ -1294,6 +1299,7 @@ fun ModernPermissionsCard(
                         icon = Icons.Rounded.NotificationsActive,
                         onClick = { if (!hasListenerPerm) onOpenListenerSettings() else isExpanded = true }
                     )
+                    }
                     PermissionCompactChip(
                         modifier = Modifier.weight(1f),
                         label = "Battery",
@@ -1340,6 +1346,7 @@ fun ModernPermissionsCard(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        if (BuildConfig.NOTIFICATION_FEATURES) {
                         PermissionTile(
                             modifier = Modifier.weight(1f),
                             title = "Notifications",
@@ -1348,6 +1355,7 @@ fun ModernPermissionsCard(
                             icon = Icons.Rounded.NotificationsActive,
                             onClick = onOpenListenerSettings
                         )
+                        }
                         PermissionTile(
                             modifier = Modifier.weight(1f),
                             title = "Battery Mode",
@@ -1582,11 +1590,14 @@ fun ModernPrivacyAccordionCard() {
                         description = "SIM calls use your selected pattern. Repeating alerts stop when Android reports that ringing has ended, or when the service reaches its safety limit. A current alert may finish before stopping."
                     )
 
+                    if (BuildConfig.NOTIFICATION_FEATURES) {
                     PrivacyPillarCard(
                         icon = Icons.Rounded.VideoCall,
                         title = "Can I get WhatsApp or other app-call alerts?",
                         description = "Open App calls, enable it and select your calling apps. It sends one bounded burst for a recognized incoming-call notification, independently of SIM and message alerts. Some app versions or call types may not be detected. Meeting reminders and ongoing calls are excluded; no caller names or message text are used."
                     )
+
+                    }
 
                     PrivacyPillarCard(
                         icon = Icons.Rounded.Sync,
@@ -1615,7 +1626,7 @@ fun ModernPrivacyAccordionCard() {
                     PrivacyPillarCard(
                         icon = Icons.Rounded.VisibilityOff,
                         title = "Does it read my messages or private data?",
-                        description = "Your messages are not sent to the developer. Android notification access can expose their content, but AirBridge's listener does not extract message text, caller names or OTP codes. It uses app identity, call metadata and notification identifiers locally to trigger and deduplicate alerts. Settings and detected calling-app identifiers stay on your phone."
+                        description = if (!BuildConfig.NOTIFICATION_FEATURES) "AirBridge Calls does not declare notification-listener access and cannot observe other apps’ notifications. It uses phone-state permission for regular SIM calls. Settings stay on your phone." else "Your messages are not sent to the developer. Android notification access can expose their content, but AirBridge's listener does not extract message text, caller names or OTP codes. It uses app identity, call metadata and notification identifiers locally to trigger and deduplicate alerts. Settings and detected calling-app identifiers stay on your phone."
                     )
                 }
             }

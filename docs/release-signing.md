@@ -11,4 +11,6 @@ The Gradle release build reads these environment variables:
 - `AIRBRIDGE_KEY_ALIAS`
 - `AIRBRIDGE_KEY_PASSWORD`
 
-With those supplied, run `./gradlew assembleRelease`. Without them, the release APK is unsigned. Do not commit keys or credentials or substitute the debug signing key.
+With those supplied, run `./gradlew assembleCallsRelease assembleFullRelease`. Without them, the release APK is unsigned. Do not commit keys or credentials or substitute the debug signing key.
+
+Both editions reuse the private release certificate. Full retains `com.vibebridge.fitbit`; Calls uses `com.vibebridge.fitbit.calls`. Neither key nor credentials belong in the repository.
