@@ -45,8 +45,7 @@ fun AppCallCard(config: AppCallConfig, onChange: (AppCallConfig) -> Unit,
     var expanded by rememberSaveable { mutableStateOf(false) }
     var editingSlot by remember { mutableStateOf<Int?>(null) }
     var patternMenu by remember { mutableStateOf(false) }
-    var apps by remember { mutableStateOf(CallingAppsDiscovery.cachedApps(config.packages + config.slots).orEmpty()) }
-    var refreshing by remember { mutableStateOf(false) }
+    var apps by remember { mutableStateOf(CallingAppsDiscovery.cachedApps(config.packages + config.slots) ?: CallingAppsDiscovery.savedApps(context)) }
     var refreshVersion by remember { mutableStateOf(0) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle) {
@@ -69,19 +68,9 @@ fun AppCallCard(config: AppCallConfig, onChange: (AppCallConfig) -> Unit,
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer); context.unregisterReceiver(packageChanges) }
     }
-    LaunchedEffect(expanded, refreshVersion) {
-        if (expanded) {
-            // Expanding and toggling alerts reuse the inventory; only a cold scan shows loading.
-            val selected = config.packages + config.slots
-            val existing = CallingAppsDiscovery.cachedApps(selected)
-            if (existing != null) apps = existing
-            else {
-                refreshing = apps.isEmpty()
-                try {
-                    apps = withContext(Dispatchers.IO) { CallingAppsDiscovery.find(context, selected) }
-                } finally { refreshing = false }
-            }
-        }
+    LaunchedEffect(refreshVersion) {
+        // Warm the inventory while collapsed; keep cached rows usable during refresh.
+        apps = withContext(Dispatchers.IO) { CallingAppsDiscovery.find(context, config.packages + config.slots) }
     }
     val slots = CallingAppSlots.resolve(config.slots, config.packages, apps.map { it.packageName }.toSet(),
         apps.filter { it.reason != CallingAppReason.DECLARED && it.reason != CallingAppReason.MANUAL }.map { it.packageName })
@@ -145,7 +134,6 @@ fun AppCallCard(config: AppCallConfig, onChange: (AppCallConfig) -> Unit,
                         Text("Notification access is required for app calls.", color = AmberText, fontSize = 12.sp)
                         TextButton(onClick = onGrantAccess) { Text("Allow notification access") }
                     }
-                    if (refreshing) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                     repeat(CallingAppSlots.MAX) { index ->
                         val pkg = slots.getOrNull(index)
                         val app = apps.firstOrNull { it.packageName == pkg }
@@ -156,7 +144,7 @@ fun AppCallCard(config: AppCallConfig, onChange: (AppCallConfig) -> Unit,
                             modifier = Modifier.fillMaxWidth()) {
                             Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically) {
-                                Row(Modifier.weight(1f).clickable(enabled = !refreshing) { editingSlot = index }
+                                Row(Modifier.weight(1f).clickable() { editingSlot = index }
                                     .semantics { contentDescription = "Change call app ${index + 1}" },
                                     verticalAlignment = Alignment.CenterVertically) {
                                     if (pkg != null) AppRealIcon(pkg, app?.label ?: pkg, Modifier.size(44.dp))
@@ -164,7 +152,7 @@ fun AppCallCard(config: AppCallConfig, onChange: (AppCallConfig) -> Unit,
                                     Spacer(Modifier.width(12.dp))
                                     Column(Modifier.weight(1f)) {
                                         Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Text(app?.label ?: "Choose app", color = if (selected) TextWhite else TextDim,
+                                            Text(app?.label ?: pkg?.let { com.vibebridge.fitbit.util.InstalledAppsManager.getAppName(context, it) } ?: "Choose app", color = if (selected) TextWhite else TextDim,
                                                 fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                                             Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = "Swap calling app",
@@ -173,7 +161,7 @@ fun AppCallCard(config: AppCallConfig, onChange: (AppCallConfig) -> Unit,
                                         Text("Incoming calls", color = TextMuted, fontSize = 11.sp)
                                     }
                                 }
-                                Switch(checked = selected, enabled = pkg != null && !refreshing,
+                                Switch(checked = selected, enabled = pkg != null,
                                     onCheckedChange = { enabled ->
                                         if (pkg != null) onChange(config.copy(slots = slots,
                                             packages = if (enabled) config.packages + pkg else config.packages - pkg))

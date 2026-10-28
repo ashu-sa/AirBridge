@@ -8,8 +8,8 @@ AirBridge is an independent Android app for Google Fitbit Air. It sends distinct
 
 | Edition | Regular SIM calls | App calls & notifications | Notification access |
 | --- | --- | --- | --- |
-| [Download Calls](https://github.com/ashu-sa/AirBridge/releases/download/v1.3.3/AirBridge-Calls-1.3.3.apk) | Yes | No | Not declared |
-| [Download Full](https://github.com/ashu-sa/AirBridge/releases/download/v1.3.3/AirBridge-Full-1.3.3.apk) | Yes | Yes | Required for app alerts |
+| [Download Calls](https://github.com/ashu-sa/AirBridge/releases/download/v1.3.4/AirBridge-Calls-1.3.4.apk) | Yes | No | Not declared |
+| [Download Full](https://github.com/ashu-sa/AirBridge/releases/download/v1.3.4/AirBridge-Full-1.3.4.apk) | Yes | Yes | Required for app alerts |
 
 Both include schedules, vibration tests and connection recovery. Calls removes the notification-listener declaration associated with the reported installation block; acceptance by every phone is not guaranteed. Full updates the existing signed release. Calls installs separately; enable alerts in only one edition at a time for the same band.
 
@@ -18,7 +18,7 @@ Both include schedules, vibration tests and connection recovery. Calls removes t
 <details>
 <summary>Full APK blocked? Optional installation steps</summary>
 
-If you choose to temporarily pause Play Protect: **Play Store → profile → Play Protect → Settings → Scan apps with Play Protect off**, install the official Full APK, then **immediately turn scanning back on and run a scan**. Turning protection off reduces security; installation and safety are not guaranteed. Menu options vary. [Detailed instructions](docs/install.md).
+If the installer offers **Install without scanning** or **Install anyway**, you can choose that option for the official APK. These options are not available on every phone. If you choose to temporarily pause Play Protect: **Play Store → profile → Play Protect → Settings → Scan apps with Play Protect off**, install the official Full APK, then **immediately turn scanning back on and run a scan**. Turning protection off reduces security; installation and safety are not guaranteed. Menu options vary. [Detailed instructions](docs/install.md).
 
 Prefer **Calls** if you only need SIM calls and do not want notification access.
 
@@ -27,7 +27,7 @@ Prefer **Calls** if you only need SIM calls and do not want notification access.
 ## Features
 
 - **Phone calls:** Urgent three-pulse bursts or closely spaced Continuous pulses while ringing, for up to 60 seconds. One connection per ringing session; the first Bluetooth handshake is not instant.
-- **App calls (Full):** Choose up to five installed calling apps, including WhatsApp, Instagram and Telegram. Tap an app to replace it.
+- **App calls (Full):** Choose up to five installed calling apps, including WhatsApp, Instagram and Telegram. Tap an app to replace it. Saved choices open immediately while discovery refreshes in the background.
 - **Priority apps (Full):** Up to five notification rules with individual vibration patterns.
 - **Schedules:** Editable Workout and Sleep presets, weekdays and overnight windows. Off by default.
 - **Bluetooth discovery:** Lists nearby BLE, discoverable classic Bluetooth and paired devices. Automatically selects the saved band, or a single Fitbit Air during first setup, and checks the link without vibrating.
@@ -55,7 +55,7 @@ Prefer **Calls** if you only need SIM calls and do not want notification access.
 3. Select your Fitbit Air and send a test vibration.
 4. Choose your call alerts, apps and optional schedule.
 
-**Experimental:** Live call delivery, battery drain and uninterrupted Fitbit sync are still being verified. App-call detection depends on the calling app’s notifications. Other Fitbit models are unverified. See [testing notes](docs/validation-1.3.3.md).
+**Experimental:** Live call delivery, battery drain and uninterrupted Fitbit sync are still being verified. App-call detection depends on the calling app’s notifications. Other Fitbit models are unverified. See [testing notes](docs/validation-1.3.4.md).
 
 ## Privacy
 
@@ -70,10 +70,10 @@ Use JDK 17 and Android SDK 34:
 ```bash
 git clone https://github.com/ashu-sa/AirBridge.git
 cd AirBridge
-./gradlew assembleCallsDebug assembleFullDebug
+./gradlew assembleCallsRelease assembleFullRelease
 ```
 
-APKs: `app/build/outputs/apk/calls/debug/app-calls-debug.apk` and `app/build/outputs/apk/full/debug/app-full-debug.apk`.
+GitHub downloads contain **signed, non-debug release APKs only**. To sign a local release, follow the [signing guide](docs/release-signing.md).
 
 ## License
 

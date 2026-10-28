@@ -20,6 +20,20 @@ object CallingAppsDiscovery {
         return entry.apps.takeIf { android.os.SystemClock.elapsedRealtime() - entry.at < CACHE_MS && selected.all { it in entry.covered } }
     }
     private const val PREFS = "air_bridge_call_discovery"
+    fun savedApps(c: Context): List<DetectedCallingApp> = runCatching {
+        val rows = org.json.JSONArray(c.getSharedPreferences(PREFS, 0).getString("inventory", "[]"))
+        (0 until rows.length()).map { index ->
+            val row = rows.getJSONObject(index)
+            DetectedCallingApp(row.getString("package"), row.getString("label"),
+                CallingAppReason.valueOf(row.getString("reason")))
+        }
+    }.getOrDefault(emptyList())
+    private fun saveApps(c: Context, apps: List<DetectedCallingApp>) {
+        val rows = org.json.JSONArray()
+        apps.forEach { app -> rows.put(org.json.JSONObject().put("package", app.packageName)
+            .put("label", app.label).put("reason", app.reason.name)) }
+        c.getSharedPreferences(PREFS, 0).edit().putString("inventory", rows.toString()).apply()
+    }
     private fun observed(c: Context): Set<String> = runCatching {
         c.getSharedPreferences(PREFS, 0).getStringSet("observed", emptySet()).orEmpty().toSet()
     }.getOrDefault(emptySet())
@@ -60,6 +74,7 @@ object CallingAppsDiscovery {
                 DetectedCallingApp(pkg, pm.getApplicationLabel(app).toString(), reason)
             }.getOrNull()
         }.sortedWith(compareBy<DetectedCallingApp> { it.reason == CallingAppReason.MANUAL }.thenBy { it.label.lowercase() })
+        saveApps(c, results)
         cached = CachedApps(results, selected + results.map { it.packageName }, scanStarted)
         return results
     }

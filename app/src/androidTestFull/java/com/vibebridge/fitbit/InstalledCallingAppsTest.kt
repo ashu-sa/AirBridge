@@ -37,5 +37,14 @@ class InstalledCallingAppsTest {
         assertNull(CallingAppsDiscovery.cachedApps())
         assertEquals(before,AppCallSettings.load(context))
     }
+    @Test fun savedInventorySurvivesMemoryInvalidationWithoutChangingAlerts() {
+        val before = AppCallSettings.load(context)
+        CallingAppsDiscovery.invalidate()
+        val apps = CallingAppsDiscovery.find(context, before.packages)
+        CallingAppsDiscovery.invalidate()
+        assertNull(CallingAppsDiscovery.cachedApps())
+        assertEquals(apps, CallingAppsDiscovery.savedApps(context))
+        assertEquals(before, AppCallSettings.load(context))
+    }
 
 }

@@ -2,14 +2,16 @@
 
 Choose **Calls** for regular SIM calls without notification access, or **Full** for SIM calls plus Priority Apps and app-call alerts. Both include schedules and vibration controls. Full uses notification events and metadata, without extracting message text. Calls has no notification-listener component.
 
-- [Calls APK](https://github.com/ashu-sa/AirBridge/releases/download/v1.3.3/AirBridge-Calls-1.3.3.apk)
-- [Full APK](https://github.com/ashu-sa/AirBridge/releases/download/v1.3.3/AirBridge-Full-1.3.3.apk)
+- [Calls APK](https://github.com/ashu-sa/AirBridge/releases/download/v1.3.4/AirBridge-Calls-1.3.4.apk)
+- [Full APK](https://github.com/ashu-sa/AirBridge/releases/download/v1.3.4/AirBridge-Full-1.3.4.apk)
 
 Calls has a separate package ID. It can coexist with Full, but enable alerts in only one edition at a time for the same band. Full can update the private-key-signed 1.2.2 release without losing settings. Calls starts with its own settings.
 
 ## Option 1: Install the APK on your phone
 
 Download your chosen edition above, open it and follow Android's installation prompts. Allow installation from that source only if Android offers the normal permission prompt.
+
+If Android offers **Install without scanning** or **Install anyway**, that is an optional installer choice for the official APK; wording and availability vary. If it offers only **Scan app** and **Don’t install**, there is no skip button on that screen—scan it or review the optional controls below. [Google describes the scan prompt here](https://developers.google.com/android/play-protect/warning-dev-guidance#app_scan_recommended).
 
 If Play Protect shows “App blocked to protect your device,” allowing unknown sources alone does not resolve that separate block. Calls is the alternative without notification access. If you still choose Full, the optional steps below explain temporarily pausing scanning and restoring it immediately. USB installation is another option.
 
@@ -34,23 +36,23 @@ This uses Google's official Android Debug Bridge (ADB), an Android developer ins
 2. On the phone, enable Developer options (usually tap **Build number** seven times under **About phone / Software information**), then enable **USB debugging**. Connect by USB and approve the prompt for your own computer.
 3. Open a terminal in the extracted `platform-tools` folder and run:
 
-The commands below install Full. Replace `AirBridge-Full-1.3.3.apk` with `AirBridge-Calls-1.3.3.apk` for Calls.
+The commands below install Full. Replace `AirBridge-Full-1.3.4.apk` with `AirBridge-Calls-1.3.4.apk` for Calls.
 
 **Windows PowerShell**
 
 ```powershell
 .\adb.exe devices
-.\adb.exe install -r .\AirBridge-Full-1.3.3.apk
+.\adb.exe install -r .\AirBridge-Full-1.3.4.apk
 ```
 
 **macOS / Linux**
 
 ```sh
 ./adb devices
-./adb install -r ./AirBridge-Full-1.3.3.apk
+./adb install -r ./AirBridge-Full-1.3.4.apk
 ```
 
-The device should appear as `device`, and installation should report `Success`. If multiple devices appear, use `adb -s DEVICE_SERIAL install -r AirBridge-Full-1.3.3.apk` with the appropriate executable prefix above.
+The device should appear as `device`, and installation should report `Success`. If multiple devices appear, use `adb -s DEVICE_SERIAL install -r AirBridge-Full-1.3.4.apk` with the appropriate executable prefix above.
 
 If installation reports a certificate mismatch, a previous debug build may be installed. Replacing that build requires uninstalling it first, which deletes its settings. Releases signed with the 1.2.2 private release key can update one another normally. Do not uninstall if you are unsure which app is installed.
 
@@ -66,7 +68,7 @@ Some Android versions place a separate restriction on notification access for si
 
 ## Verify the download
 
-The release includes [SHA256SUMS.txt](https://github.com/ashu-sa/AirBridge/releases/download/v1.3.3/SHA256SUMS.txt) covering both APKs. Compare the checksum for the edition you download.
+The release includes [SHA256SUMS.txt](https://github.com/ashu-sa/AirBridge/releases/download/v1.3.4/SHA256SUMS.txt) covering both APKs. Compare the checksum for the edition you download.
 
 A matching checksum confirms the downloaded file matches this published build; it is not a security certification.
 

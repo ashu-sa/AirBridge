@@ -11,8 +11,8 @@ android {
         applicationId = "com.vibebridge.fitbit"
         minSdk = 26
         targetSdk = 34
-        versionCode = 12
-        versionName = "1.3.3"
+        versionCode = 13
+        versionName = "1.3.4"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {
@@ -48,7 +48,8 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             isDebuggable = false
             // Private signing material is supplied locally and never committed.
             if (!releaseStore.isNullOrBlank()) signingConfig = signingConfigs.getByName("privateRelease")
@@ -97,7 +98,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
 
     // Golden Gate & BitGatt Dependencies
-    implementation("com.github.fitbit:bitgatt:v0.9.11")
+    // Vendored BitGatt changes only its overly broad consumer keep rule; see docs/dependencies.md.
     implementation("io.reactivex.rxjava2:rxjava:2.2.12")
     implementation("io.reactivex.rxjava2:rxandroid:2.1.1")
     implementation("com.jakewharton.timber:timber:4.7.1")
