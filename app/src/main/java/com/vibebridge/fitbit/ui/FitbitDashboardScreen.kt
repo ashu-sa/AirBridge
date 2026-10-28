@@ -113,6 +113,24 @@ fun FitbitDashboardScreen(
         }
     }
 
+    val connected by com.vibebridge.fitbit.service.AirBridgeOneShotService.bandConnected.collectAsState()
+    var bluetoothEnabled by remember { mutableStateOf(false) }
+    DisposableEffect(context, hasBluetoothPerm) {
+        fun refreshBluetooth() {
+            bluetoothEnabled = runCatching {
+                (context.getSystemService(Context.BLUETOOTH_SERVICE) as? android.bluetooth.BluetoothManager)?.adapter?.isEnabled == true
+            }.getOrDefault(false)
+        }
+        refreshBluetooth()
+        val receiver = object : android.content.BroadcastReceiver() {
+            override fun onReceive(c: Context?, intent: android.content.Intent?) { refreshBluetooth() }
+        }
+        androidx.core.content.ContextCompat.registerReceiver(context, receiver,
+            android.content.IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED), androidx.core.content.ContextCompat.RECEIVER_EXPORTED)
+        onDispose { context.unregisterReceiver(receiver) }
+    }
+    val bandStatus = BandStatus.resolve(hasBluetoothPerm, bluetoothEnabled, pairedDeviceAddress.isNotBlank(),
+        needsHapticRecovery, connected, isTestingVibration, lastStatus)
     val isArmed = hasBluetoothPerm && pairedDeviceAddress.isNotBlank()
     val openScanner = {
         if (hasBluetoothPerm) {
@@ -153,13 +171,14 @@ fun FitbitDashboardScreen(
             }
             Spacer(Modifier.width(12.dp))
             Column {
-                Text(if (BuildConfig.NOTIFICATION_FEATURES) "AirBridge Full" else "AirBridge Calls", color = TextWhite, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+                Text("Air Bridge", color = TextWhite, fontSize = 28.sp, fontWeight = FontWeight.Bold)
                 Text("Your alerts, a little closer.", color = TextMuted, fontSize = 13.sp)
             }
         }
 
         ModernHeaderCard(
             isArmed = isArmed,
+            bandStatus = bandStatus,
             deviceName = pairedDeviceName,
             deviceAddress = pairedDeviceAddress,
             onOpenScanner = openScanner,
@@ -451,6 +470,7 @@ fun FitbitDashboardScreen(
 @Composable
 fun ModernHeaderCard(
     isArmed: Boolean,
+    bandStatus: BandStatus,
     deviceName: String,
     deviceAddress: String,
     onOpenScanner: () -> Unit,
@@ -472,8 +492,25 @@ fun ModernHeaderCard(
                 Text("YOUR BAND", color = TextMuted, fontSize = 11.sp, letterSpacing = 1.sp, modifier = Modifier.weight(1f))
                 Text(if (isArmed) "Saved" else "Setup needed", color = if (isArmed) EmeraldText else AmberText, fontSize = 12.sp)
             }
-            Text(if (deviceAddress.isBlank()) "Choose your Fitbit" else deviceName.ifBlank { "Fitbit band" },
-                color = TextWhite, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
+            val statusColor = when (bandStatus) {
+                BandStatus.CONNECTED -> EmeraldText
+                BandStatus.ACTION_REQUIRED -> AmberText
+                BandStatus.FAILED -> Color(0xFFFF7373)
+                else -> TextMuted
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(if (deviceAddress.isBlank()) "Choose your Fitbit" else deviceName.ifBlank { "Fitbit band" },
+                    color = TextWhite, fontSize = 22.sp, fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f, fill = false))
+                Icon(when (bandStatus) {
+                    BandStatus.CONNECTED -> Icons.Rounded.CheckCircle
+                    BandStatus.ACTION_REQUIRED -> Icons.Rounded.Warning
+                    BandStatus.FAILED -> Icons.Rounded.Error
+                    BandStatus.CONNECTING -> Icons.Rounded.Sync
+                    BandStatus.READY -> Icons.Rounded.Bluetooth
+                }, contentDescription = bandStatus.label, tint = statusColor, modifier = Modifier.size(18.dp))
+            }
+            Text(bandStatus.label, color = statusColor, fontSize = 12.sp)
             Text(if (isArmed) "Connects when an alert arrives. Test below to check delivery."
                 else "Allow Bluetooth access and select a nearby band to get started.",
                 color = TextMuted, fontSize = 12.sp, lineHeight = 18.sp)
@@ -1644,7 +1681,7 @@ fun ModernPrivacyAccordionCard() {
                     PrivacyPillarCard(
                         icon = Icons.Rounded.VisibilityOff,
                         title = "Does it read my messages or private data?",
-                        description = if (!BuildConfig.NOTIFICATION_FEATURES) "AirBridge Calls does not declare notification-listener access and cannot observe other apps’ notifications. It uses phone-state permission for regular SIM calls. Settings stay on your phone." else "Your messages are not sent to the developer. Android notification access can expose their content, but AirBridge's listener does not extract message text, caller names or OTP codes. It uses app identity, call metadata and notification identifiers locally to trigger and deduplicate alerts. Settings and detected calling-app identifiers stay on your phone."
+                        description = if (!BuildConfig.NOTIFICATION_FEATURES) "Air Bridge does not declare notification-listener access and cannot observe other apps’ notifications. It uses phone-state permission for regular SIM calls. Settings stay on your phone." else "Your messages are not sent to the developer. Android notification access can expose their content, but AirBridge's listener does not extract message text, caller names or OTP codes. It uses app identity, call metadata and notification identifiers locally to trigger and deduplicate alerts. Settings and detected calling-app identifiers stay on your phone."
                     )
                 }
             }

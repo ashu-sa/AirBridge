@@ -8,8 +8,8 @@ AirBridge is an independent Android app for Google Fitbit Air. It sends distinct
 
 | Edition | Regular SIM calls | App calls & notifications | Notification access |
 | --- | --- | --- | --- |
-| [Download Calls](https://github.com/ashu-sa/AirBridge/releases/download/v1.3.1/AirBridge-Calls-1.3.1.apk) | Yes | No | Not declared |
-| [Download Full](https://github.com/ashu-sa/AirBridge/releases/download/v1.3.1/AirBridge-Full-1.3.1.apk) | Yes | Yes | Required for app alerts |
+| [Download Calls](https://github.com/ashu-sa/AirBridge/releases/download/v1.3.2/AirBridge-Calls-1.3.2.apk) | Yes | No | Not declared |
+| [Download Full](https://github.com/ashu-sa/AirBridge/releases/download/v1.3.2/AirBridge-Full-1.3.2.apk) | Yes | Yes | Required for app alerts |
 
 Both include schedules, vibration tests and connection recovery. Calls removes the notification-listener declaration associated with the reported installation block; acceptance by every phone is not guaranteed. Full updates the existing signed release. Calls installs separately; enable alerts in only one edition at a time for the same band.
 
@@ -31,6 +31,7 @@ Prefer **Calls** if you only need SIM calls and do not want notification access.
 - **Priority apps (Full):** Up to five notification rules with individual vibration patterns.
 - **Schedules:** Editable Workout and Sleep presets, weekdays and overnight windows. Off by default.
 - **Bluetooth discovery:** Lists nearby BLE, discoverable classic Bluetooth and paired devices. Automatically selects the saved band, or a single Fitbit Air during first setup, and checks the link without vibrating.
+- **Band status:** A small icon shows an active connection, required action or a failed attempt. Idle bands reconnect for alerts.
 - **Connection controls:** Test vibrations, pause alerts for sync and recover interrupted connections.
 
 ## Screenshots
@@ -54,7 +55,7 @@ Prefer **Calls** if you only need SIM calls and do not want notification access.
 3. Select your Fitbit Air and send a test vibration.
 4. Choose your call alerts, apps and optional schedule.
 
-**Experimental:** Live call delivery, battery drain and uninterrupted Fitbit sync are still being verified. App-call detection depends on the calling app’s notifications. Other Fitbit models are unverified. See [testing notes](docs/validation-1.3.1.md).
+**Experimental:** Live call delivery, battery drain and uninterrupted Fitbit sync are still being verified. App-call detection depends on the calling app’s notifications. Other Fitbit models are unverified. See [testing notes](docs/validation-1.3.2.md).
 
 ## Privacy
 

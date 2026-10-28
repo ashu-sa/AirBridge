@@ -395,6 +395,7 @@ class AirBridgeOneShotService : Service() {
 
         return getEndpoint
             .flatMap { endpoint ->
+                _bandConnected.value = true
                 if (!canBegin(trigger)) return@flatMap Single.error<AirHapticExecutionResult>(CancellationException("Alert cancelled before settings write"))
                 if (trigger.isConnectionCheck) {
                     updateStatus("Connected; checking the band without vibrating")
@@ -603,6 +604,7 @@ class AirBridgeOneShotService : Service() {
     }
 
     private fun releasePeerAndWait(): Completable {
+        _bandConnected.value = false
         val peer = synchronized(this) {
             activeEndpoint = null
             val detached = activePeer
@@ -659,7 +661,7 @@ class AirBridgeOneShotService : Service() {
 
     private fun buildNotification(status: String) = NotificationCompat.Builder(this, CHANNEL_ID)
         .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
-        .setContentTitle("AirBridge")
+        .setContentTitle("Air Bridge")
         .setContentText(status)
         .setStyle(NotificationCompat.BigTextStyle().bigText(status))
         .setOngoing(true)
@@ -695,6 +697,8 @@ class AirBridgeOneShotService : Service() {
         const val ACTION_STOP_ALL = "com.vibebridge.fitbit.STOP_ALL"
         const val ACTION_RESET_BLE = "com.vibebridge.fitbit.RESET_BLE"
 
+        private val _bandConnected = kotlinx.coroutines.flow.MutableStateFlow(false)
+        val bandConnected: kotlinx.coroutines.flow.StateFlow<Boolean> = _bandConnected
         @Volatile var isVibrating: Boolean = false
 
         private const val EXTRA_SOURCE_PACKAGE = "source_package"

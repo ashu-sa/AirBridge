@@ -10,6 +10,7 @@ class EditionContractTest {
     @Suppress("DEPRECATION")
     @Test fun installedManifestMatchesEdition() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
+        assertEquals("Air Bridge", context.applicationInfo.loadLabel(context.packageManager).toString())
         val info = context.packageManager.getPackageInfo(context.packageName,
             PackageManager.GET_SERVICES or PackageManager.GET_PERMISSIONS or PackageManager.GET_RECEIVERS)
         val listeners = info.services.orEmpty().filter {
