@@ -144,14 +144,21 @@ class MainActivity : ComponentActivity() {
                         notificationRules = AirBridgeNotificationSettings.resetToDefaults(this)
                         Toast.makeText(this, "Reset to 5 default apps", Toast.LENGTH_SHORT).show()
                     },
-                    onSelectDevice = { address, name ->
+                    onSelectDevice = selectBand@{ address, name ->
+                        if (AirBridgeOneShotService.isVibrating) {
+                            Toast.makeText(this, "Wait for the current alert or connection check to finish", Toast.LENGTH_SHORT).show()
+                            return@selectBand
+                        }
                         if (!BluetoothAdapter.checkBluetoothAddress(address)) {
                             Toast.makeText(this, "Enter a valid Bluetooth address", Toast.LENGTH_SHORT).show()
                         } else {
                             AirBridgeDeviceSettings.saveAddress(this, address, name)
                             pairedAddress = address
                             pairedName = name
-                            Toast.makeText(this, "Selected $name. Test an alert to check the connection.", Toast.LENGTH_SHORT).show()
+                            val started = AirBridgeOneShotService.enqueue(this, AirNotificationTrigger(
+                                "Connection check", AirHapticPattern.SINGLE, isManual = true, isConnectionCheck = true))
+                            refreshState()
+                            Toast.makeText(this, if (started) "Selected $name. Checking the connection…" else "Band saved. See Latest activity for connection status.", Toast.LENGTH_SHORT).show()
                         }
                     },
                     onTestCallAlert = {

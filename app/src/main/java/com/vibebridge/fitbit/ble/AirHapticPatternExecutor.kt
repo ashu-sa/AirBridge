@@ -15,6 +15,9 @@ object AirHapticPatternExecutor {
                 checkpoint: (Int) -> Unit = {}, verified: () -> Unit = {}): Single<AirHapticExecutionResult> =
         HapticPatternRunner(CoapSettingsClient(endpoint), checkpoint = checkpoint, verified = verified).execute(pattern)
 
+    fun checkConnection(endpoint: CoapEndpoint): Single<AirHapticExecutionResult> =
+        HapticPatternRunner(CoapSettingsClient(endpoint)).checkConnection()
+
     fun recover(endpoint: CoapEndpoint, original: Int, verified: () -> Unit): Single<Unit> =
         HapticPatternRunner(CoapSettingsClient(endpoint), verified = verified).recover(original)
 

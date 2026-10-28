@@ -67,7 +67,8 @@ data class AirNotificationTrigger(
     val isContinuousCall: Boolean = false,
     val createdAtElapsed: Long = 0L,
     val isManual: Boolean = false,
-    val appCallToken: Long? = null
+    val appCallToken: Long? = null,
+    val isConnectionCheck: Boolean = false
 )
 
 /**
@@ -149,6 +150,7 @@ class AirBridgeOneShotService : Service() {
         val isCall = intent?.getBooleanExtra(EXTRA_IS_CALL, false) ?: false
         val appCallToken = intent?.getLongExtra(EXTRA_APP_CALL_TOKEN, 0L)?.takeIf { it != 0L }
         val isManual = intent?.getBooleanExtra(EXTRA_IS_MANUAL, false) ?: false
+        val isConnectionCheck = isManual && (intent?.getBooleanExtra(EXTRA_CONNECTION_CHECK, false) ?: false)
         val isContinuousCall = intent?.getBooleanExtra(EXTRA_IS_CONTINUOUS_CALL, false) ?: false
 
         if (sourcePackage != null && pattern != null) {
@@ -170,12 +172,12 @@ class AirBridgeOneShotService : Service() {
                 // Prioritize calls without allowing manual-test floods to grow the queue.
                 while (queue.size >= MAX_QUEUE_SIZE) queue.removeLast()
                 queue.addFirst(AirNotificationTrigger(sourcePackage, pattern, isCall = isCall,
-                    isContinuousCall = isContinuousCall, createdAtElapsed = SystemClock.elapsedRealtime(), isManual = isManual, appCallToken = appCallToken))
+                    isContinuousCall = isContinuousCall, createdAtElapsed = SystemClock.elapsedRealtime(), isManual = isManual, appCallToken = appCallToken, isConnectionCheck = isConnectionCheck))
             } else {
                 queue.removeAll { !it.isCall && it.appCallToken == null && it.sourcePackage == sourcePackage }
                 if (queue.size < MAX_QUEUE_SIZE) {
                     queue.addLast(AirNotificationTrigger(sourcePackage, pattern,
-                        createdAtElapsed = SystemClock.elapsedRealtime(), isManual = isManual))
+                        createdAtElapsed = SystemClock.elapsedRealtime(), isManual = isManual, isConnectionCheck = isConnectionCheck))
                 } else {
                     updateStatus("Queue full; discarded $sourcePackage")
                 }
@@ -239,7 +241,10 @@ class AirBridgeOneShotService : Service() {
                 .observeOn(AndroidSchedulers.mainThread())
                 .subscribe(
                     { result ->
-                        val status = "Success: ${trigger.sourcePackage} [${trigger.pattern.displayName}], " +
+                        val status = if (trigger.isConnectionCheck) {
+                            "Band connection verified; no vibration sent. Alerts reconnect on demand." +
+                                if (address != null && PendingHapticRecovery.get(this, address) != null) " Vibration-setting recovery is still required." else ""
+                        } else "Success: ${trigger.sourcePackage} [${trigger.pattern.displayName}], " +
                                 "${result.groupCount} pulse group(s), restored to " +
                                 AirDirectSettingsProtocol.hapticsIntensityName(result.finalIntensity)
                         updateStatus(status)
@@ -391,6 +396,10 @@ class AirBridgeOneShotService : Service() {
         return getEndpoint
             .flatMap { endpoint ->
                 if (!canBegin(trigger)) return@flatMap Single.error<AirHapticExecutionResult>(CancellationException("Alert cancelled before settings write"))
+                if (trigger.isConnectionCheck) {
+                    updateStatus("Connected; checking the band without vibrating")
+                    return@flatMap AirHapticPatternExecutor.checkConnection(endpoint).timeout(12, TimeUnit.SECONDS)
+                }
                 val pending = PendingHapticRecovery.get(this, address)
                 val ready = if (pending == null) Single.just(Unit)
                     else if (trigger.isManual) {
@@ -693,6 +702,7 @@ class AirBridgeOneShotService : Service() {
         private const val EXTRA_APP_CALL_TOKEN = "app_call_token"
         private const val EXTRA_IS_CALL = "is_call"
         private const val EXTRA_IS_MANUAL = "is_manual"
+        private const val EXTRA_CONNECTION_CHECK = "connection_check"
         private const val EXTRA_IS_CONTINUOUS_CALL = "extra_is_continuous_call"
 
         private const val CHANNEL_ID = "air_bridge_ble_connection"
@@ -749,6 +759,7 @@ class AirBridgeOneShotService : Service() {
                 .putExtra(EXTRA_APP_CALL_TOKEN, trigger.appCallToken ?: 0L)
                 .putExtra(EXTRA_IS_CALL, trigger.isCall)
                 .putExtra(EXTRA_IS_MANUAL, trigger.isManual)
+                .putExtra(EXTRA_CONNECTION_CHECK, trigger.isConnectionCheck)
                 .putExtra(EXTRA_IS_CONTINUOUS_CALL, trigger.isContinuousCall)
             return runCatching {
                 ContextCompat.startForegroundService(context, intent)

@@ -2,8 +2,8 @@
 
 Choose **Calls** for regular SIM calls without notification access, or **Full** for SIM calls plus Priority Apps and app-call alerts. Both include schedules and vibration controls. Full uses notification events and metadata, without extracting message text. Calls has no notification-listener component.
 
-- [Calls APK](https://github.com/ashu-sa/AirBridge/releases/download/v1.3.0/AirBridge-Calls-1.3.0.apk)
-- [Full APK](https://github.com/ashu-sa/AirBridge/releases/download/v1.3.0/AirBridge-Full-1.3.0.apk)
+- [Calls APK](https://github.com/ashu-sa/AirBridge/releases/download/v1.3.1/AirBridge-Calls-1.3.1.apk)
+- [Full APK](https://github.com/ashu-sa/AirBridge/releases/download/v1.3.1/AirBridge-Full-1.3.1.apk)
 
 Calls has a separate package ID. It can coexist with Full, but enable alerts in only one edition at a time for the same band. Full can update the private-key-signed 1.2.2 release without losing settings. Calls starts with its own settings.
 
@@ -11,9 +11,22 @@ Calls has a separate package ID. It can coexist with Full, but enable alerts in 
 
 Download your chosen edition above, open it and follow Android's installation prompts. Allow installation from that source only if Android offers the normal permission prompt.
 
-If Play Protect shows “App blocked to protect your device,” allowing unknown sources alone does not resolve that separate block. You can consider the optional computer-assisted route below. Keep Play Protect enabled.
+If Play Protect shows “App blocked to protect your device,” allowing unknown sources alone does not resolve that separate block. Calls is the alternative without notification access. If you still choose Full, the optional steps below explain temporarily pausing scanning and restoring it immediately. USB installation is another option.
 
-## Option 2: Install over USB from your own computer
+## Option 2: Optional temporary Play Protect pause for Full
+
+Google recommends keeping Play Protect enabled. Pausing it reduces protection and does not establish that any APK is harmless. AirBridge has not been approved by Google. Download the official Full APK first, and use these steps only if you choose to accept that risk.
+
+1. Open **Google Play Store → profile icon → Play Protect → Settings**.
+2. Turn **Scan apps with Play Protect** off and review the phone's confirmation. Some versions offer **Pause** instead. If the setting is unavailable or controlled by an administrator, do not try to circumvent that restriction.
+3. Install the official **AirBridge Full** APK you downloaded from this repository.
+4. Immediately return to the same screen, turn **Scan apps with Play Protect** back **on**, and run a Play Protect scan—even if installation failed.
+
+Menu names vary. This is not a guaranteed installation fix: Android may still block, flag or remove the app after scanning resumes. Do not ignore a new warning on the assumption that offline software cannot cause harm. Choose **Calls** if you only need SIM-call alerts and do not want notification access.
+
+These are [Google's documented on/off controls](https://support.google.com/googleplay/answer/2812853); no security controls are changed by AirBridge itself.
+
+## Option 3: Install over USB from your own computer
 
 This uses Google's official Android Debug Bridge (ADB), an Android developer installation tool. It is an alternative installation method, not a guarantee of acceptance by Play Protect or your phone's security policy. It does not remove notification features or change AirBridge's permissions.
 
@@ -21,23 +34,23 @@ This uses Google's official Android Debug Bridge (ADB), an Android developer ins
 2. On the phone, enable Developer options (usually tap **Build number** seven times under **About phone / Software information**), then enable **USB debugging**. Connect by USB and approve the prompt for your own computer.
 3. Open a terminal in the extracted `platform-tools` folder and run:
 
-The commands below install Full. Replace `AirBridge-Full-1.3.0.apk` with `AirBridge-Calls-1.3.0.apk` for Calls.
+The commands below install Full. Replace `AirBridge-Full-1.3.1.apk` with `AirBridge-Calls-1.3.1.apk` for Calls.
 
 **Windows PowerShell**
 
 ```powershell
 .\adb.exe devices
-.\adb.exe install -r .\AirBridge-Full-1.3.0.apk
+.\adb.exe install -r .\AirBridge-Full-1.3.1.apk
 ```
 
 **macOS / Linux**
 
 ```sh
 ./adb devices
-./adb install -r ./AirBridge-Full-1.3.0.apk
+./adb install -r ./AirBridge-Full-1.3.1.apk
 ```
 
-The device should appear as `device`, and installation should report `Success`. If multiple devices appear, use `adb -s DEVICE_SERIAL install -r AirBridge-Full-1.3.0.apk` with the appropriate executable prefix above.
+The device should appear as `device`, and installation should report `Success`. If multiple devices appear, use `adb -s DEVICE_SERIAL install -r AirBridge-Full-1.3.1.apk` with the appropriate executable prefix above.
 
 If installation reports a certificate mismatch, a previous debug build may be installed. Replacing that build requires uninstalling it first, which deletes its settings. Releases signed with the 1.2.2 private release key can update one another normally. Do not uninstall if you are unsure which app is installed.
 
@@ -53,7 +66,7 @@ Some Android versions place a separate restriction on notification access for si
 
 ## Verify the download
 
-The release includes [SHA256SUMS.txt](https://github.com/ashu-sa/AirBridge/releases/download/v1.3.0/SHA256SUMS.txt) covering both APKs. Compare the checksum for the edition you download.
+The release includes [SHA256SUMS.txt](https://github.com/ashu-sa/AirBridge/releases/download/v1.3.1/SHA256SUMS.txt) covering both APKs. Compare the checksum for the edition you download.
 
 A matching checksum confirms the downloaded file matches this published build; it is not a security certification.
 

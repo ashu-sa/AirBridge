@@ -96,6 +96,7 @@ fun FitbitDashboardScreen(
     val haptic = LocalHapticFeedback.current
 
     var showScannerDialog by remember { mutableStateOf(false) }
+    var scanAfterPermission by rememberSaveable { mutableStateOf(false) }
     var showManualAddressDialog by remember { mutableStateOf(false) }
     var manualAddressInput by remember { mutableStateOf(pairedDeviceAddress) }
     var manualNameInput by remember { mutableStateOf(pairedDeviceName) }
@@ -118,7 +119,15 @@ fun FitbitDashboardScreen(
             showScannerDialog = true
             bleScanner.startScan()
         } else {
+            scanAfterPermission = true
             onRequestBluetoothPerm()
+        }
+    }
+    LaunchedEffect(hasBluetoothPerm, scanAfterPermission) {
+        if (hasBluetoothPerm && scanAfterPermission) {
+            scanAfterPermission = false
+            showScannerDialog = true
+            bleScanner.startScan()
         }
     }
 
@@ -336,13 +345,16 @@ fun FitbitDashboardScreen(
         BleScannerDialog(
             bleScanner = bleScanner,
             currentPairedAddress = pairedDeviceAddress,
+            connectionBusy = isTestingVibration,
+            onEnableBluetooth = onEnableBluetooth,
+            onRequestPermissions = onRequestBluetoothPerm,
             onDismiss = {
                 bleScanner.stopScan()
                 showScannerDialog = false
             },
             onSelect = { device ->
-                onSelectDevice(device.address, device.name)
                 bleScanner.stopScan()
+                onSelectDevice(device.address, device.name)
                 showScannerDialog = false
             }
         )
@@ -485,7 +497,7 @@ fun ModernHeaderCard(
             if (isArmed) {
                 TextButton(onClick = onTestBand, enabled = !isTesting,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                    Text(if (isTesting) "Sending test…" else if (needsHapticRecovery) "Recover vibration setting" else "Send a test vibration", fontSize = 13.sp)
+                    Text(if (isTesting) "Working…" else if (needsHapticRecovery) "Recover vibration setting" else "Send a test vibration", fontSize = 13.sp)
                 }
             }
         }
@@ -1575,7 +1587,13 @@ fun ModernPrivacyAccordionCard() {
                     PrivacyPillarCard(
                         icon = Icons.Rounded.CloudOff,
                         title = "Does AirBridge need internet or a cloud account?",
-                        description = "AirBridge's Bluetooth alert processing works offline on your phone. No AirBridge cloud service, login or analytics is used, and notification data is not uploaded. The calling or messaging app may still need internet to receive its own calls and messages."
+                        description = "AirBridge's Bluetooth alert processing works offline on your phone. No AirBridge cloud service, login or analytics is used, and notification data is not uploaded. The APK still declares Internet permission for the bundled connection stack; offline operation is not a technical ban on network access. Calling and messaging apps may need internet for their own calls and messages."
+                    )
+
+                    PrivacyPillarCard(
+                        icon = Icons.Rounded.Security,
+                        title = "What if Android blocks the Full download?",
+                        description = "Calls is the alternative without notification access. If you choose Full and accept the risk, Google Play Store → profile → Play Protect → Settings → turn off Scan apps with Play Protect, install the official APK, then immediately turn scanning back on and run a scan. Turning protection off reduces security and does not establish that an APK is safe. Your device may still block or remove the app."
                     )
 
                     PrivacyPillarCard(
@@ -1619,8 +1637,8 @@ fun ModernPrivacyAccordionCard() {
 
                     PrivacyPillarCard(
                         icon = Icons.Rounded.AccountBalance,
-                        title = "Does this app affect UPI or Banking apps?",
-                        description = "AirBridge does not request an Accessibility Service, overlay access or screen capture. Banking apps apply their own security policies, so compatibility cannot be guaranteed."
+                        title = "Can banking or work apps restrict AirBridge?",
+                        description = "AirBridge does not request accessibility, overlays or screen capture. Banking, payment and workplace apps apply their own security policies, so compatibility cannot be guaranteed. Calls does not require notification access; Full uses it for app alerts."
                     )
 
                     PrivacyPillarCard(
@@ -2185,13 +2203,38 @@ fun ModernCollapsibleDiagnosticsCard(
 fun BleScannerDialog(
     bleScanner: BleScanner,
     currentPairedAddress: String,
+    connectionBusy: Boolean,
+    onEnableBluetooth: () -> Unit,
+    onRequestPermissions: () -> Unit,
     onDismiss: () -> Unit,
     onSelect: (DiscoveredBleDevice) -> Unit
 ) {
     val discoveredDevices by bleScanner.devices.collectAsState()
-    val devices = discoveredDevices.filter { it.isFitbit }
+    val devices = discoveredDevices
     val isScanning by bleScanner.isScanning.collectAsState()
     val scanError by bleScanner.error.collectAsState()
+    var selectedOnce by remember { mutableStateOf(false) }
+    val candidate = com.vibebridge.fitbit.ble.BandDiscoveryPolicy.automatic(devices, currentPairedAddress)
+    val lifecycle = androidx.compose.ui.platform.LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle, bleScanner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) bleScanner.startScan()
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_PAUSE) bleScanner.stopScan()
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer); bleScanner.stopScan() }
+    }
+    LaunchedEffect(candidate?.address, isScanning, connectionBusy, scanError) {
+        if (selectedOnce || connectionBusy || scanError != null || candidate == null || !lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) return@LaunchedEffect
+        if (currentPairedAddress.isBlank() && isScanning) return@LaunchedEffect
+        kotlinx.coroutines.delay(500)
+        val ready = com.vibebridge.fitbit.ble.BandDiscoveryPolicy.automatic(bleScanner.devices.value, currentPairedAddress)
+        if (ready?.address == candidate.address && !selectedOnce && lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
+            selectedOnce = true
+            onSelect(ready)
+        }
+    }
+
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -2200,7 +2243,7 @@ fun BleScannerDialog(
             border = BorderStroke(1.dp, CyberTeal.copy(alpha = 0.4f)),
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(max = 500.dp)
+                .heightIn(max = 580.dp)
         ) {
             Column(modifier = Modifier.padding(18.dp)) {
                 Row(
@@ -2209,7 +2252,7 @@ fun BleScannerDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Find your band",
+                        text = "Bluetooth devices",
                         color = TextWhite,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
@@ -2226,12 +2269,17 @@ fun BleScannerDialog(
 
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = scanError ?: if (isScanning) "Keep your band nearby. Select it from the list." else "Only devices advertising a Fitbit name are listed. Other devices need Manual setup.",
+                    text = scanError ?: if (connectionBusy) "Wait for the current alert or connection check to finish."
+                        else if (currentPairedAddress.isNotBlank()) "Your saved band is selected automatically when seen. Paired devices may be out of range."
+                        else "A single nearby Fitbit Air is selected when the scan finishes. Otherwise, choose a BLE device below.",
                     color = TextMuted,
                     fontSize = 11.sp
                 )
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Row {
+                    TextButton(onClick = onEnableBluetooth) { Text("Turn on Bluetooth", fontSize = 11.sp) }
+                    TextButton(onClick = onRequestPermissions) { Text("Permissions", fontSize = 11.sp) }
+                }
 
                 if (devices.isEmpty()) {
                     Box(
@@ -2241,7 +2289,7 @@ fun BleScannerDialog(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = if (isScanning) "Listening for BLE advertisements..." else "No named Fitbit found. Wake the band and rescan, or use Manual setup for a known address.",
+                            text = if (isScanning) "Scanning nearby Bluetooth devices…" else "No devices found. Check permissions, Bluetooth and band range, then rescan.",
                             color = TextDim,
                             fontSize = 12.sp
                         )
@@ -2253,7 +2301,7 @@ fun BleScannerDialog(
                             .fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        items(devices) { dev ->
+                        items(devices, key = { it.address }) { dev ->
                             val isCurrent = dev.address.equals(currentPairedAddress, ignoreCase = true)
                             Row(
                                 modifier = Modifier
@@ -2265,7 +2313,7 @@ fun BleScannerDialog(
                                         if (dev.isFitbit) CyberTeal.copy(alpha = 0.5f) else SurfaceCardStroke,
                                         RoundedCornerShape(10.dp)
                                     )
-                                    .clickable { onSelect(dev) }
+                                    .clickable(enabled = dev.connectable && !connectionBusy) { selectedOnce = true; onSelect(dev) }
                                     .padding(horizontal = 12.dp, vertical = 8.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
@@ -2292,7 +2340,7 @@ fun BleScannerDialog(
                                         }
                                     }
                                     Text(
-                                        text = "${dev.address} • RSSI ${dev.rssi} dBm",
+                                        text = "${dev.address} • ${dev.source}" + if (dev.rssi != Int.MIN_VALUE && dev.rssi != Short.MIN_VALUE.toInt()) " • ${dev.rssi} dBm" else "",
                                         color = TextMuted,
                                         fontSize = 10.sp,
                                         fontFamily = FontFamily.Monospace
@@ -2300,7 +2348,8 @@ fun BleScannerDialog(
                                 }
 
                                 Button(
-                                    onClick = { onSelect(dev) },
+                                    onClick = { selectedOnce = true; onSelect(dev) },
+                                    enabled = dev.connectable && !connectionBusy,
                                     shape = RoundedCornerShape(8.dp),
                                     colors = ButtonDefaults.buttonColors(
                                         containerColor = if (dev.isFitbit) PrimaryTeal else SurfaceCardElevated,
@@ -2309,7 +2358,7 @@ fun BleScannerDialog(
                                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                                     modifier = Modifier.heightIn(min = 48.dp)
                                 ) {
-                                    Text("Select", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                    Text(if (dev.connectable) "Connect" else "Not BLE", fontSize = 10.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -2323,7 +2372,7 @@ fun BleScannerDialog(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Button(
-                        onClick = { bleScanner.startScan() },
+                        onClick = { selectedOnce = false; bleScanner.stopScan(); bleScanner.startScan() },
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(10.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = PrimaryTeal, contentColor = TextWhite)

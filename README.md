@@ -8,12 +8,21 @@ AirBridge is an independent Android app for Google Fitbit Air. It sends distinct
 
 | Edition | Regular SIM calls | App calls & notifications | Notification access |
 | --- | --- | --- | --- |
-| [Download Calls](https://github.com/ashu-sa/AirBridge/releases/download/v1.3.0/AirBridge-Calls-1.3.0.apk) | Yes | No | Not declared |
-| [Download Full](https://github.com/ashu-sa/AirBridge/releases/download/v1.3.0/AirBridge-Full-1.3.0.apk) | Yes | Yes | Required for app alerts |
+| [Download Calls](https://github.com/ashu-sa/AirBridge/releases/download/v1.3.1/AirBridge-Calls-1.3.1.apk) | Yes | No | Not declared |
+| [Download Full](https://github.com/ashu-sa/AirBridge/releases/download/v1.3.1/AirBridge-Full-1.3.1.apk) | Yes | Yes | Required for app alerts |
 
 Both include schedules, vibration tests and connection recovery. Calls removes the notification-listener declaration associated with the reported installation block; acceptance by every phone is not guaranteed. Full updates the existing signed release. Calls installs separately; enable alerts in only one edition at a time for the same band.
 
 [Installation options](docs/install.md) · [Report an issue](https://github.com/ashu-sa/AirBridge/issues)
+
+<details>
+<summary>Full APK blocked? Optional installation steps</summary>
+
+If you choose to temporarily pause Play Protect: **Play Store → profile → Play Protect → Settings → Scan apps with Play Protect off**, install the official Full APK, then **immediately turn scanning back on and run a scan**. Turning protection off reduces security; installation and safety are not guaranteed. Menu options vary. [Detailed instructions](docs/install.md).
+
+Prefer **Calls** if you only need SIM calls and do not want notification access.
+
+</details>
 
 ## Features
 
@@ -21,7 +30,8 @@ Both include schedules, vibration tests and connection recovery. Calls removes t
 - **App calls (Full):** Choose up to five installed calling apps, including WhatsApp, Instagram and Telegram. Tap an app to replace it.
 - **Priority apps (Full):** Up to five notification rules with individual vibration patterns.
 - **Schedules:** Editable Workout and Sleep presets, weekdays and overnight windows. Off by default.
-- **Connection controls:** Test vibrations, find your band, pause alerts for sync and recover interrupted connections.
+- **Bluetooth discovery:** Lists nearby BLE, discoverable classic Bluetooth and paired devices. Automatically selects the saved band, or a single Fitbit Air during first setup, and checks the link without vibrating.
+- **Connection controls:** Test vibrations, pause alerts for sync and recover interrupted connections.
 
 ## Screenshots
 
@@ -44,11 +54,11 @@ Both include schedules, vibration tests and connection recovery. Calls removes t
 3. Select your Fitbit Air and send a test vibration.
 4. Choose your call alerts, apps and optional schedule.
 
-**Experimental:** Live call delivery, battery drain and uninterrupted Fitbit sync are still being verified. App-call detection depends on the calling app’s notifications. Other Fitbit models are unverified. See [testing notes](docs/validation-1.3.0.md).
+**Experimental:** Live call delivery, battery drain and uninterrupted Fitbit sync are still being verified. App-call detection depends on the calling app’s notifications. Other Fitbit models are unverified. See [testing notes](docs/validation-1.3.1.md).
 
 ## Privacy
 
-Calls does not include a notification listener. Full processes notification events locally without extracting message text. AirBridge's Bluetooth alerts work offline. No AirBridge cloud account, backend or analytics is used. Notification data is not uploaded; the listener does not extract message text, caller names or OTP codes. Settings stay on your phone. Notification access is sensitive, so enable only the features you need. AirBridge is not affiliated with Google or Fitbit.
+Calls does not include a notification listener. Full processes notification events locally without extracting message text. AirBridge's Bluetooth alerts work offline. No AirBridge cloud account, backend or analytics is used. Notification data is not uploaded; the listener does not extract message text, caller names or OTP codes. The APK still declares Internet permission for its bundled connection stack; offline processing is not a technical prohibition on network access. Settings stay on your phone. Notification access is sensitive, so enable only the features you need. AirBridge is not affiliated with Google or Fitbit.
 
 **Installation options:** Install the APK normally, or use the optional [USB/ADB guide](docs/install.md) if your phone blocks browser downloads. The full app keeps notification and app-call alerts. Phone security policies may still block installation; no universal workaround is promised.
 

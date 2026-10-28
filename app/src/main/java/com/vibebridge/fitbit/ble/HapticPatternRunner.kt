@@ -21,6 +21,11 @@ class HapticPatternRunner(
     private val checkpoint: (Int) -> Unit = {},
     private val verified: () -> Unit = {}
 ) {
+    /** A link check never writes, checkpoints, recovers, or clears a pending recovery. */
+    fun checkConnection(): Single<AirHapticExecutionResult> = client.read().map { intensity ->
+        require(intensity in AirDirectSettingsProtocol.HAPTICS_OFF..AirDirectSettingsProtocol.HAPTICS_HIGH) { "Unsupported haptics intensity" }
+        AirHapticExecutionResult(intensity, intensity, 0)
+    }
     fun execute(pattern: AirHapticPattern): Single<AirHapticExecutionResult> = client.read().flatMap { original ->
         require(original in AirDirectSettingsProtocol.HAPTICS_OFF..AirDirectSettingsProtocol.HAPTICS_HIGH) { "Unsupported starting haptics intensity" }
         checkpoint(original)
