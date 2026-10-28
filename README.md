@@ -6,10 +6,10 @@ AirBridge is an independent Android app for Google Fitbit Air. It sends distinct
 
 ## Choose your edition
 
-| Edition | Regular SIM calls | App calls & notifications | Notification access |
-| --- | --- | --- | --- |
-| [📞 Calls only](https://github.com/ashu-sa/AirBridge/releases/download/v1.3.4/AirBridge-Calls-1.3.4.apk) | Yes | No | Not declared |
-| [📞 + 🔔 Calls & notifications](https://github.com/ashu-sa/AirBridge/releases/download/v1.3.4/AirBridge-Full-1.3.4.apk) | Yes | Yes | Required for app alerts |
+| Edition | Download v1.3.4 | Regular SIM calls | App calls & notifications | Notification access |
+| --- | --- | --- | --- | --- |
+| 📞 Calls only | [⬇ Download APK · 3.91 MB](https://github.com/ashu-sa/AirBridge/releases/download/v1.3.4/AirBridge-Calls-1.3.4.apk) | Yes | No | Not declared |
+| 📞 + 🔔 Calls & notifications | [⬇ Download APK · 3.94 MB](https://github.com/ashu-sa/AirBridge/releases/download/v1.3.4/AirBridge-Full-1.3.4.apk) | Yes | Yes | Required for app alerts |
 
 Both include schedules, vibration tests and connection recovery. Calls removes the notification-listener declaration associated with the reported installation block; acceptance by every phone is not guaranteed. Full updates the existing signed release. Calls installs separately; enable alerts in only one edition at a time for the same band.
 
