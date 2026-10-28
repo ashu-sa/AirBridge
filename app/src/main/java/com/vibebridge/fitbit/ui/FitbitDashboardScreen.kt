@@ -690,7 +690,7 @@ fun ModernCallAlertCard(
                         CallOptionItem(
                             AirHapticPattern.CONTINUOUS,
                             "Continuous",
-                            "Repeating pulses",
+                            "Closely spaced pulses",
                             Icons.Rounded.GraphicEq
                         )
                     )
@@ -1642,7 +1642,7 @@ fun ModernPrivacyAccordionCard() {
                     PrivacyPillarCard(
                         icon = Icons.Rounded.PhoneInTalk,
                         title = "How does incoming call vibration work?",
-                        description = "SIM calls use your selected pattern. Repeating alerts stop when Android reports that ringing has ended, or when the service reaches its safety limit. A current alert may finish before stopping."
+                        description = "SIM calls use your selected pattern. Repeating alerts stop when Android reports that ringing has ended, or when the service reaches its safety limit. A pulse already sent to the band may finish before stopping. Urgent repeats three-pulse bursts; Continuous repeats closely spaced pulses. The first Bluetooth handshake takes time, so delivery is not instant."
                     )
 
                     if (BuildConfig.NOTIFICATION_FEATURES) {
@@ -1657,7 +1657,7 @@ fun ModernPrivacyAccordionCard() {
                     PrivacyPillarCard(
                         icon = Icons.Rounded.Sync,
                         title = "How does companion-app syncing work?",
-                        description = "AirBridge releases its connection after alerts. Repeating calls release the connection between bursts, with a 5-second gap. Sync timing is controlled by the companion app; uninterrupted sync is not guaranteed. Opening the companion app from AirBridge pauses alerts for 5 minutes so you can sync."
+                        description = "AirBridge releases its connection after alerts. SIM-call alerts keep one connection while ringing, for up to 60 seconds, and then release it. Sync timing is controlled by the companion app; uninterrupted sync is not guaranteed. Opening the companion app from AirBridge pauses alerts for 5 minutes so you can sync."
                     )
 
                     PrivacyPillarCard(

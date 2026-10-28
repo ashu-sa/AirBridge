@@ -52,6 +52,45 @@ class HapticPatternRunner(
         }
     }
 
+    /** One bounded call session: restore between pulses, check cancellation during every delay. */
+    fun executeRinging(pattern: AirHapticPattern, shouldContinue: () -> Boolean,
+                       maxDurationMillis: Long = 60_000L): Single<AirHapticExecutionResult> = Single.defer {
+        require(maxDurationMillis > 0) { "Call duration must be bounded" }
+        val started = scheduler.now(TimeUnit.MILLISECONDS)
+        fun allowed() = shouldContinue() && scheduler.now(TimeUnit.MILLISECONDS) - started < maxDurationMillis
+        fun waitOrStop(delay: Long): Single<Long> = Single.timer(delay, TimeUnit.MILLISECONDS, scheduler)
+            .ambWith(io.reactivex.Observable.interval(0, 50, TimeUnit.MILLISECONDS, scheduler)
+                .filter { !allowed() }.firstOrError())
+        client.read().flatMap { original ->
+            require(original in AirDirectSettingsProtocol.HAPTICS_OFF..AirDirectSettingsProtocol.HAPTICS_HIGH) { "Unsupported starting haptics intensity" }
+            if (!allowed()) return@flatMap Single.just(AirHapticExecutionResult(original, original, 0))
+            checkpoint(original)
+            val alternate = if (original == AirDirectSettingsProtocol.HAPTICS_HIGH) AirDirectSettingsProtocol.HAPTICS_LOW else AirDirectSettingsProtocol.HAPTICS_HIGH
+            fun pulse(): Single<Unit> = client.write(alternate).flatMap {
+                waitOrStop(pattern.restoreDelayMillis).flatMap { restoreWrite(original) }
+            }.onErrorResumeNext { error ->
+                if (error is HapticsRestoreException) Single.error(error)
+                else restoreWrite(original).flatMap { Single.error<Unit>(error) }
+            }
+            fun next(group: Int, count: Int): Single<Int> = Single.defer {
+                if (!allowed()) Single.just(count)
+                else pulse().flatMap {
+                    val nextGroup = (group + 1) % pattern.groupCount
+                    val gap = if (nextGroup == 0) {
+                        if (pattern == AirHapticPattern.CONTINUOUS) 120L else 1_000L
+                    } else pattern.betweenGroupDelaysMillis[group]
+                    waitOrStop(gap).flatMap { next(nextGroup, count + 1) }
+                }
+            }
+            next(0, 0).flatMap { count ->
+                verify(original).map {
+                    verified()
+                    AirHapticExecutionResult(original, original, count)
+                }
+            }
+        }
+    }
+
     fun recover(original: Int): Single<Unit> {
         require(original in AirDirectSettingsProtocol.HAPTICS_OFF..AirDirectSettingsProtocol.HAPTICS_HIGH) { "Invalid recovery intensity" }
         return restoreWrite(original).flatMap { verify(original) }.doOnSuccess { verified() }

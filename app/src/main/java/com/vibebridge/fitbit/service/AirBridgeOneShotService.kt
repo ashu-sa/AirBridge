@@ -68,7 +68,8 @@ data class AirNotificationTrigger(
     val createdAtElapsed: Long = 0L,
     val isManual: Boolean = false,
     val appCallToken: Long? = null,
-    val isConnectionCheck: Boolean = false
+    val isConnectionCheck: Boolean = false,
+    val callSessionId: Long = 0L
 )
 
 /**
@@ -84,15 +85,14 @@ class AirBridgeOneShotService : Service() {
     private var processing = false
     private var foregroundReady = false
     private var resetWhenIdle = false
-    private var stopRequested = false
-    private var callRepeatRunnable: Runnable? = null
+    @Volatile private var stopRequested = false
     private var activePeer: StackPeer<CoapEndpoint>? = null
     private var activeEndpoint: CoapEndpoint? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var currentStatus: String = "Ready (Idle)"
     @Volatile private var isCallRinging = false
+    @Volatile private var callGeneration = 0L
     private var callRingStartTime = 0L
-    private var callRingBurstCount = 0
 
     // AGP 8.3's flavor lint misses the shared manifest declaration. Both packaged
     // editions declare connectedDevice; EditionContractTest checks the installed type.
@@ -125,8 +125,7 @@ class AirBridgeOneShotService : Service() {
                 return START_NOT_STICKY
             }
             isCallRinging = false
-            callRepeatRunnable?.let { mainHandler.removeCallbacks(it) }
-            callRepeatRunnable = null
+            callGeneration++
             queue.removeAll { it.isCall }
             updateStatus(if (processing) "Call ended; finishing current alert" else "Call ended")
             if (!processing) processNext()
@@ -135,9 +134,8 @@ class AirBridgeOneShotService : Service() {
 
         if (action == ACTION_STOP_ALL || action == ACTION_RESET_BLE) {
             stopRequested = true
+            callGeneration++
             isCallRinging = false
-            callRepeatRunnable?.let { mainHandler.removeCallbacks(it) }
-            callRepeatRunnable = null
             queue.clear()
             resetWhenIdle = resetWhenIdle || action == ACTION_RESET_BLE
             updateStatus(if (processing) "Stopping after current alert completes" else "Alerts stopped")
@@ -163,8 +161,8 @@ class AirBridgeOneShotService : Service() {
             if (isCall || appCallToken != null) {
                 if (isContinuousCall) {
                     if (!isCallRinging) {
+                        callGeneration++
                         callRingStartTime = SystemClock.elapsedRealtime()
-                        callRingBurstCount = 0
                     }
                     if (isCallRinging) return START_NOT_STICKY
                     isCallRinging = true
@@ -172,7 +170,8 @@ class AirBridgeOneShotService : Service() {
                 // Prioritize calls without allowing manual-test floods to grow the queue.
                 while (queue.size >= MAX_QUEUE_SIZE) queue.removeLast()
                 queue.addFirst(AirNotificationTrigger(sourcePackage, pattern, isCall = isCall,
-                    isContinuousCall = isContinuousCall, createdAtElapsed = SystemClock.elapsedRealtime(), isManual = isManual, appCallToken = appCallToken, isConnectionCheck = isConnectionCheck))
+                    isContinuousCall = isContinuousCall, createdAtElapsed = SystemClock.elapsedRealtime(), isManual = isManual, appCallToken = appCallToken, isConnectionCheck = isConnectionCheck,
+                    callSessionId = if (isContinuousCall) callGeneration else 0L))
             } else {
                 queue.removeAll { !it.isCall && it.appCallToken == null && it.sourcePackage == sourcePackage }
                 if (queue.size < MAX_QUEUE_SIZE) {
@@ -211,8 +210,6 @@ class AirBridgeOneShotService : Service() {
         if (blocked != null) {
             queue.clear()
             isCallRinging = false
-            callRepeatRunnable?.let { mainHandler.removeCallbacks(it) }
-            callRepeatRunnable = null
             updateStatus(blocked)
             stopSelfIfQueueEmpty()
             return
@@ -250,29 +247,8 @@ class AirBridgeOneShotService : Service() {
                         updateStatus(status)
                         processing = false
 
-                        // If it's a call and the phone is still ringing, queue another pulse after a short breather
-                        if (trigger.isCall && trigger.isContinuousCall && isCallRinging &&
-                            AlertScheduleStore.blockReason(this) == null) {
-                            callRingBurstCount++
-                            val elapsed = SystemClock.elapsedRealtime() - callRingStartTime
-                            if (elapsed > MAX_CALL_RING_DURATION_MILLIS || callRingBurstCount > MAX_CALL_BURSTS) {
-                                Timber.i("Call ringing safety limit reached (${elapsed}ms, ${callRingBurstCount} bursts). Releasing haptics.")
-                                isCallRinging = false
-                                activeEndpoint = null
-                                releasePeer()
-                                processNext()
-                            } else {
-                                releaseWakeLock()
-                                callRepeatRunnable = Runnable {
-                                    callRepeatRunnable = null
-                                    if (isCallRinging) queue.addFirst(trigger)
-                                    processNext()
-                                }
-                                mainHandler.postDelayed(callRepeatRunnable!!, CALL_REPEAT_GAP_MILLIS)
-                            }
-                        } else {
-                            processNext()
-                        }
+                        if (trigger.isContinuousCall && trigger.callSessionId == callGeneration) isCallRinging = false
+                        processNext()
                     },
                     { throwable ->
                         val status = if (throwable is CancellationException) "Alert stopped"
@@ -351,7 +327,7 @@ class AirBridgeOneShotService : Service() {
 
     private fun canBegin(trigger: AirNotificationTrigger): Boolean = !stopRequested &&
         !BleSessionDiagnostics.cleanupFailed && automaticFeatureEnabled(trigger) &&
-        (!trigger.isContinuousCall || isCallRinging) && AlertScheduleStore.blockReason(this) == null &&
+        (!trigger.isContinuousCall || (isCallRinging && trigger.callSessionId == callGeneration)) && AlertScheduleStore.blockReason(this) == null &&
         (trigger.appCallToken == null || com.vibebridge.fitbit.calls.AppCallSessions.notifications.active(
             trigger.appCallToken, trigger.sourcePackage, SystemClock.elapsedRealtime()))
 
@@ -410,13 +386,19 @@ class AirBridgeOneShotService : Service() {
                 ready.flatMap {
                     if (!canBegin(trigger)) return@flatMap Single.error<AirHapticExecutionResult>(CancellationException("Alert cancelled before settings write"))
                     updateStatus("Connected! Pulsing ${trigger.pattern.displayName}")
-                    AirHapticPatternExecutor.execute(endpoint, trigger.pattern,
-                        checkpoint = { PendingHapticRecovery.mark(this, address, it) },
-                        verified = { PendingHapticRecovery.clear(this, address) })
-                }.timeout(30, TimeUnit.SECONDS)
+                    val checkpoint: (Int) -> Unit = { PendingHapticRecovery.mark(this, address, it) }
+                    val verified = { PendingHapticRecovery.clear(this, address) }
+                    if (trigger.isCall && trigger.isContinuousCall) {
+                        AirHapticPatternExecutor.executeRinging(endpoint, trigger.pattern,
+                            shouldContinue = { canBegin(trigger) &&
+                                SystemClock.elapsedRealtime() - callRingStartTime < MAX_CALL_RING_DURATION_MILLIS },
+                            checkpoint = checkpoint, verified = verified)
+                    } else AirHapticPatternExecutor.execute(endpoint, trigger.pattern,
+                        checkpoint = checkpoint, verified = verified)
+                }.timeout(if (trigger.isCall && trigger.isContinuousCall) 90L else 30L, TimeUnit.SECONDS)
             }
             .flatMap { result ->
-                // Yield the band after EVERY bounded pattern, including repeating calls.
+                // Yield after each one-shot alert or the bounded ringing session.
                 releasePeerAndWait().andThen(Single.timer(RELEASE_SETTLE_MILLIS, TimeUnit.MILLISECONDS).map { result })
             }
     }
@@ -713,13 +695,11 @@ class AirBridgeOneShotService : Service() {
         private const val NOTIFICATION_ID = 24001
         private const val MAX_QUEUE_SIZE = 3
         private const val MAX_ALERT_AGE_MILLIS = 30_000L
-        private const val CALL_REPEAT_GAP_MILLIS = 5_000L
         private const val SCAN_TIMEOUT_MILLIS = 8_000L
         private const val CONNECT_TIMEOUT_SECONDS = 20L
         private const val RELEASE_SETTLE_MILLIS = 2_000L
         private const val WAKE_LOCK_TIMEOUT_MILLIS = 120_000L
         private const val MAX_CALL_RING_DURATION_MILLIS = 60_000L
-        private const val MAX_CALL_BURSTS = 15
         private val RETRY_DELAYS_MILLIS = listOf(2_000L, 4_000L)
 
         fun enqueue(context: Context, trigger: AirNotificationTrigger): Boolean {
