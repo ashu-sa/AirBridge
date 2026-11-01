@@ -2,8 +2,8 @@
 
 Choose **Calls** for regular SIM calls without notification access, or **Full** for SIM calls plus Priority Apps and app-call alerts. Both include schedules and vibration controls. Full uses notification events and metadata, without extracting message text. Calls has no notification-listener component.
 
-- [Calls APK](https://github.com/ashu-sa/AirBridge/releases/download/v1.3.4/AirBridge-Calls-1.3.4.apk)
-- [Full APK](https://github.com/ashu-sa/AirBridge/releases/download/v1.3.4/AirBridge-Full-1.3.4.apk)
+- [Calls APK](https://github.com/ashu-sa/AirBridge/releases/download/v1.3.5/AirBridge-Calls-1.3.5.apk)
+- [Full APK](https://github.com/ashu-sa/AirBridge/releases/download/v1.3.5/AirBridge-Full-1.3.5.apk)
 
 Calls has a separate package ID. It can coexist with Full, but enable alerts in only one edition at a time for the same band. Full can update the private-key-signed 1.2.2 release without losing settings. Calls starts with its own settings.
 
@@ -36,23 +36,23 @@ This uses Google's official Android Debug Bridge (ADB), an Android developer ins
 2. On the phone, enable Developer options (usually tap **Build number** seven times under **About phone / Software information**), then enable **USB debugging**. Connect by USB and approve the prompt for your own computer.
 3. Open a terminal in the extracted `platform-tools` folder and run:
 
-The commands below install Full. Replace `AirBridge-Full-1.3.4.apk` with `AirBridge-Calls-1.3.4.apk` for Calls.
+The commands below install Full. Replace `AirBridge-Full-1.3.5.apk` with `AirBridge-Calls-1.3.5.apk` for Calls.
 
 **Windows PowerShell**
 
 ```powershell
 .\adb.exe devices
-.\adb.exe install -r .\AirBridge-Full-1.3.4.apk
+.\adb.exe install -r .\AirBridge-Full-1.3.5.apk
 ```
 
 **macOS / Linux**
 
 ```sh
 ./adb devices
-./adb install -r ./AirBridge-Full-1.3.4.apk
+./adb install -r ./AirBridge-Full-1.3.5.apk
 ```
 
-The device should appear as `device`, and installation should report `Success`. If multiple devices appear, use `adb -s DEVICE_SERIAL install -r AirBridge-Full-1.3.4.apk` with the appropriate executable prefix above.
+The device should appear as `device`, and installation should report `Success`. If multiple devices appear, use `adb -s DEVICE_SERIAL install -r AirBridge-Full-1.3.5.apk` with the appropriate executable prefix above.
 
 If installation reports a certificate mismatch, a previous debug build may be installed. Replacing that build requires uninstalling it first, which deletes its settings. Releases signed with the 1.2.2 private release key can update one another normally. Do not uninstall if you are unsure which app is installed.
 
