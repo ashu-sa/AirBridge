@@ -26,6 +26,8 @@ object AirHapticPatternExecutor {
     fun recover(endpoint: CoapEndpoint, original: Int, verified: () -> Unit): Single<Unit> =
         HapticPatternRunner(CoapSettingsClient(endpoint), verified = verified).recover(original)
 
+    @Volatile var isWriteInFlight: Boolean = false
+
     private class CoapSettingsClient(private val endpoint: CoapEndpoint) : HapticSettingsClient {
         override fun read(): Single<Int> {
             val request = OutgoingRequestBuilder("/settings", Method.PUT).expectSuccess(false).maxResendCount(2)
@@ -41,11 +43,14 @@ object AirHapticPatternExecutor {
         override fun write(intensity: Int): Single<Unit> {
             val request = OutgoingRequestBuilder("/settings", Method.POST).expectSuccess(false).maxResendCount(2)
                 .body(AirDirectSettingsProtocol.encodeHapticsSettingsResponse(intensity)).build()
-            return endpoint.responseFor(request).observeOn(Schedulers.io()).timeout(8, TimeUnit.SECONDS).map { response ->
-                require(response.responseCode.ok()) { "Settings write returned ${response.responseCode}" }
-                Timber.d("Haptic write confirmed: %d", intensity)
-                Unit
-            }
+            return Single.fromCallable { isWriteInFlight = true }
+                .flatMap { endpoint.responseFor(request).observeOn(Schedulers.io()).timeout(8, TimeUnit.SECONDS) }
+                .doFinally { isWriteInFlight = false }
+                .map { response ->
+                    require(response.responseCode.ok()) { "Settings write returned ${response.responseCode}" }
+                    Timber.d("Haptic write confirmed: %d", intensity)
+                    Unit
+                }
         }
     }
 }

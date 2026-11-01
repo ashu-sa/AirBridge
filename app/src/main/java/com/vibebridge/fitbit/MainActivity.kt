@@ -162,11 +162,12 @@ class MainActivity : ComponentActivity() {
                         }
                     },
                     onTestCallAlert = {
-                        val trigger = AirNotificationTrigger("Manual Call Test", callPattern, isCall = true, isContinuousCall = false, isManual = true)
+                        val isContinuous = callPattern == AirHapticPattern.CONTINUOUS
+                        val trigger = AirNotificationTrigger("Manual Call Test", callPattern, isCall = true, isContinuousCall = isContinuous, isManual = true)
                         isVibratingActive = true
                         val ok = AirBridgeOneShotService.enqueue(this, trigger)
                         if (ok) {
-                            Toast.makeText(this, "Starting test: ${callPattern.displayName}", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(this, if (isContinuous) "Testing continuous ring (Tap band or Pause Test to stop)" else "Starting test: ${callPattern.displayName}", Toast.LENGTH_SHORT).show()
                         } else {
                             isVibratingActive = false
                             Toast.makeText(this, AirBridgeDeviceSettings.loadLastStatus(this), Toast.LENGTH_SHORT).show()

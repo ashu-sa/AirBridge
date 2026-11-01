@@ -25,7 +25,10 @@ import androidx.core.content.ContextCompat
 import com.fitbit.bluetooth.fbgatt.BitGattHelper
 import com.fitbit.bluetooth.fbgatt.FitbitBluetoothDevice
 import com.fitbit.bluetooth.fbgatt.FitbitGatt
+import com.fitbit.bluetooth.fbgatt.ConnectionEventListener
 import com.fitbit.bluetooth.fbgatt.GattConnection
+import com.fitbit.bluetooth.fbgatt.GattState
+import com.fitbit.bluetooth.fbgatt.TransactionResult
 import com.fitbit.bluetooth.fbgatt.rx.PeripheralConnectionChangeListener
 import com.fitbit.goldengate.bindings.dtls.DtlsProtocolStatus
 import com.fitbit.goldengate.bindings.coap.CoapEndpoint
@@ -299,10 +302,10 @@ class AirBridgeOneShotService : Service() {
 
     private fun stopSelfIfQueueEmpty() {
         releasePeer()
+        if (AirBridgeRuntime.isInitialized()) {
+            runCatching { BitGattHelper.clearConnections(FitbitGatt.getInstance()) }
+        }
         if (resetWhenIdle) {
-            if (AirBridgeRuntime.isInitialized()) {
-                runCatching { BitGattHelper.clearConnections(FitbitGatt.getInstance()) }
-            }
             DiagnosticTlsIdentityRecorder.clear()
             resetWhenIdle = false
             updateStatus("Connection reset. Ready for the next alert.")
@@ -567,7 +570,10 @@ class AirBridgeOneShotService : Service() {
             PeerRole.Peripheral,
             stackConfig,
             CoapEndpointBuilder(),
-            { connection -> PeripheralConnectionChangeListener().register(connection) },
+            { connection ->
+                attachBandEventListener(connection)
+                PeripheralConnectionChangeListener().register(connection)
+            },
             { stack ->
                 stack.dtlsEventObservable.observeOn(Schedulers.io()).doOnNext { status ->
                     check(status.state != DtlsProtocolStatus.TlsProtocolState.TLS_STATE_ERROR) {
@@ -585,17 +591,68 @@ class AirBridgeOneShotService : Service() {
             .map { peer.stackService }
     }
 
+    private var activeConnection: GattConnection? = null
+
+    private val bandEventListener = object : ConnectionEventListener {
+        override fun onClientCharacteristicChanged(result: TransactionResult, connection: GattConnection) {
+            val charUuid = result.characteristicUuid
+            val data = result.data ?: byteArrayOf()
+            Timber.i("AirBridgeTap: Band notification: uuid=%s len=%d inFlight=%b", charUuid, data.size, AirHapticPatternExecutor.isWriteInFlight)
+        }
+
+        override fun onClientConnectionStateChanged(result: TransactionResult, connection: GattConnection) {
+            Timber.i("AirBridgeTap: Band connection state changed: %s", result.resultState)
+            if (isCallRinging && (result.resultState == GattState.DISCONNECTED || result.resultState == GattState.DISCONNECTING)) {
+                handleBandTapDismissal("Band disconnected (${result.resultState})")
+            }
+        }
+
+        override fun onMtuChanged(result: TransactionResult, connection: GattConnection) {}
+        override fun onPhyChanged(result: TransactionResult, connection: GattConnection) {}
+        override fun onServicesDiscovered(result: TransactionResult, connection: GattConnection) {}
+    }
+
+    private fun handleBandTapDismissal(reason: String) {
+        if (!isCallRinging) return
+        Timber.i("Band tap dismissal triggered: %s", reason)
+        isCallRinging = false
+        callGeneration++
+        updateStatus("Call alert silenced by band tap")
+    }
+
+    private fun attachBandEventListener(connection: GattConnection) {
+        activeConnection = connection
+        runCatching { connection.registerConnectionEventListener(bandEventListener) }
+    }
+
+    private fun detachBandEventListener() {
+        activeConnection?.let { conn ->
+            runCatching { conn.unregisterConnectionEventListener(bandEventListener) }
+        }
+        activeConnection = null
+    }
+
     private fun releasePeerAndWait(): Completable {
+        val conn = activeConnection
+        detachBandEventListener()
         _bandConnected.value = false
         val peer = synchronized(this) {
             activeEndpoint = null
             val detached = activePeer
             activePeer = null
             detached
-        } ?: return Completable.complete()
-        // Native stack disposal must never execute inside its own DTLS/CoAP callback.
+        }
+        val address = AirBridgeDeviceSettings.loadAddress(this)
         return NativePeerCleanup.close {
-            peer.disconnect(false)
+            peer?.disconnect(false)
+            conn?.let { runCatching { it.close() } }
+            if (AirBridgeRuntime.isInitialized()) {
+                val fitbitGatt = FitbitGatt.getInstance()
+                if (address != null) {
+                    BitGattHelper.removeConnectionForAddress(fitbitGatt, address)
+                }
+                BitGattHelper.clearConnections(fitbitGatt)
+            }
             BleSessionDiagnostics.onReleased()
         }
             .doOnError { BleSessionDiagnostics.cleanupFailed = true }

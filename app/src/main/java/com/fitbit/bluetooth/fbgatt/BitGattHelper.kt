@@ -13,8 +13,11 @@ object BitGattHelper {
     fun removeConnectionForAddress(fitbitGatt: FitbitGatt, address: String) {
         runCatching {
             val map = fitbitGatt.connectionMap
-            map.keys.filter { it.address.equals(address, ignoreCase = true) }
-                .forEach { map.remove(it) }
+            val targets = map.filter { it.key.address.equals(address, ignoreCase = true) }
+            targets.forEach { (device, connection) ->
+                runCatching { connection.close() }
+                map.remove(device)
+            }
         }
     }
 }

@@ -4,6 +4,7 @@ import com.vibebridge.fitbit.AirHapticPattern
 import io.reactivex.Scheduler
 import io.reactivex.Single
 import io.reactivex.schedulers.Schedulers
+import timber.log.Timber
 import java.util.concurrent.TimeUnit
 
 interface HapticSettingsClient {
@@ -73,7 +74,9 @@ class HapticPatternRunner(
                 else restoreWrite(original).flatMap { Single.error<Unit>(error) }
             }
             fun next(group: Int, count: Int): Single<Int> = Single.defer {
-                if (!allowed()) Single.just(count)
+                val isAllowed = allowed()
+                Timber.i("Air executeRinging pulse: count=%d allowed=%b", count, isAllowed)
+                if (!isAllowed) Single.just(count)
                 else pulse().flatMap {
                     val nextGroup = (group + 1) % pattern.groupCount
                     val gap = if (nextGroup == 0) {
