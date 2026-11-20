@@ -1,6 +1,6 @@
 # 1.3.6-rc2: reliability candidate
 
-Not a public release. Google Health coexistence is still unresolved.
+Published as a GitHub prerelease, not a stable release. Google Health coexistence is still unresolved.
 
 ## Changes
 
