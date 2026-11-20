@@ -24,8 +24,13 @@ Prefer **Calls** if you only need SIM calls and do not want notification access.
 
 </details>
 
+## Known issues
+
+Google Health sync and its alarm/vibration settings can still fail after AirBridge alerts, including on v1.3.5. Closing our Bluetooth client does not guarantee Google Health's secure session recovers. If affected, stop AirBridge before retrying Google Health; some users need to restart Google Health. This is still under investigation, not a confirmed universal fix.
+
 ## Features
 
+- **Missed call alerts:** The upcoming reliability candidate can show an after-call notification when no vibration acknowledgement was received, with a Reset link action. Phone notifications must be allowed. This is not yet in the v1.3.5 download.
 - **Phone calls:** Urgent three-pulse bursts or closely spaced Continuous pulses while ringing, for up to 60 seconds. One connection per ringing session; the first Bluetooth handshake is not instant.
 - **App calls (Full):** Choose up to five installed calling apps, including WhatsApp, Instagram and Telegram. Tap an app to replace it. Saved choices open immediately while discovery refreshes in the background.
 - **Priority apps (Full):** Up to five notification rules with individual vibration patterns.

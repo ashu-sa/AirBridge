@@ -39,6 +39,14 @@ class MainActivity : ComponentActivity() {
     private var hasBluetoothPerm by mutableStateOf(false)
     private var hasNotificationListenerPerm by mutableStateOf(false)
     private var isBatteryOptimized by mutableStateOf(true)
+    private var hasBandAssociation by mutableStateOf(false)
+    private var associationPending by mutableStateOf(false)
+    private val associationConsent = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartIntentSenderForResult()
+    ) {
+        associationPending = false
+        refreshState()
+    }
     private var pairedAddress by mutableStateOf("")
     private var pairedName by mutableStateOf("")
     private var lastStatusText by mutableStateOf("")
@@ -71,10 +79,14 @@ class MainActivity : ComponentActivity() {
         bleScanner = BleScanner(applicationContext)
 
         refreshState()
+        handleRecoveryNotice(intent)
 
         setContent {
             FitbitVibeTheme {
                 FitbitDashboardScreen(
+                    hasBandAssociation = hasBandAssociation,
+                    associationPending = associationPending,
+                    onConfigureBackground = { configureBackgroundAccess() },
                     hasPhonePerm = hasPhonePerm,
                     callDetectionStatus = callDetectionStatus,
                     appCallConfig = appCallConfig,
@@ -221,6 +233,68 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleRecoveryNotice(intent)
+    }
+
+    private fun handleRecoveryNotice(intent: Intent?) {
+        if (intent?.getBooleanExtra(EXTRA_RESET_LINK, false) == true) {
+            intent.removeExtra(EXTRA_RESET_LINK)
+            AirBridgeOneShotService.resetConnection(this)
+            getSystemService(android.app.NotificationManager::class.java)?.cancel(24002)
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun configureBackgroundAccess() {
+        if (associationPending) return
+        if (pairedAddress.isBlank()) {
+            Toast.makeText(this, "Select your band first", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val manager = getSystemService(android.companion.CompanionDeviceManager::class.java)
+        if (manager == null || !packageManager.hasSystemFeature("android.software.companion_device_setup")) {
+            Toast.makeText(this, "Companion setup is unavailable on this phone. Check Battery → Unrestricted.", Toast.LENGTH_LONG).show()
+            return
+        }
+        val address = pairedAddress
+        if (hasBandAssociation) {
+            runCatching { com.vibebridge.fitbit.background.BandAssociation.remove(this, address) }
+                .onFailure { Toast.makeText(this, "Could not remove background access", Toast.LENGTH_LONG).show() }
+            refreshState()
+            return
+        }
+        associationPending = true
+        val callback = object : android.companion.CompanionDeviceManager.Callback() {
+            override fun onDeviceFound(chooser: android.content.IntentSender) { showConsent(chooser) }
+            override fun onAssociationPending(chooser: android.content.IntentSender) { showConsent(chooser) }
+            private fun showConsent(chooser: android.content.IntentSender) {
+                runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    runCatching { associationConsent.launch(androidx.activity.result.IntentSenderRequest.Builder(chooser).build()) }
+                        .onFailure { associationPending = false }
+                }
+            }
+            override fun onAssociationCreated(info: android.companion.AssociationInfo) {
+                runOnUiThread { associationPending = false; refreshState() }
+            }
+            override fun onFailure(error: CharSequence?) {
+                runOnUiThread {
+                    associationPending = false
+                    Toast.makeText(this@MainActivity, "Background setup did not finish. Keep the charged band nearby and enable Location services, then try again.", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+        runCatching {
+            manager.associate(com.vibebridge.fitbit.background.BandAssociation.requestFor(address), callback, android.os.Handler(mainLooper))
+        }.onFailure {
+            associationPending = false
+            Toast.makeText(this, "Could not open Android companion setup", Toast.LENGTH_LONG).show()
+        }
+    }
+
     private fun requestPhonePermissions() {
         requestPermissions(arrayOf(Manifest.permission.READ_PHONE_STATE), REQ_PHONE_PERMS)
     }
@@ -304,6 +378,7 @@ class MainActivity : ComponentActivity() {
 
         pairedAddress = AirBridgeDeviceSettings.loadAddress(this).orEmpty()
         pairedName = AirBridgeDeviceSettings.loadDeviceName(this)
+        hasBandAssociation = com.vibebridge.fitbit.background.BandAssociation.isAssociated(this, pairedAddress)
         needsHapticRecovery = pairedAddress.isNotBlank() && PendingHapticRecovery.get(this, pairedAddress) != null
         lastStatusText = AirBridgeDeviceSettings.loadLastStatus(this)
         isCallAlertEnabled = AirBridgeDeviceSettings.isCallAlertEnabled(this)
@@ -316,6 +391,7 @@ class MainActivity : ComponentActivity() {
     }
 
     companion object {
+        const val EXTRA_RESET_LINK = "reset_link_from_call_notice"
         private const val REQ_PHONE_PERMS = 201
         private const val REQ_BLE_PERMS = 202
     }

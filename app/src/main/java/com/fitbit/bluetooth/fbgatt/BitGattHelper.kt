@@ -1,6 +1,13 @@
 package com.fitbit.bluetooth.fbgatt
 
 object BitGattHelper {
+    fun removeOwnedConnection(fitbitGatt: FitbitGatt, connection: GattConnection) {
+        val map = fitbitGatt.connectionMap
+        map.entries.toList().filter { it.value === connection }.forEach { (device, owned) ->
+            map.remove(device, owned)
+        }
+    }
+
     fun clearConnections(fitbitGatt: FitbitGatt) {
         runCatching {
             fitbitGatt.connectionMap.values.toList().forEach { connection ->

@@ -20,7 +20,8 @@ class HapticPatternRunner(
     private val client: HapticSettingsClient,
     private val scheduler: Scheduler = Schedulers.computation(),
     private val checkpoint: (Int) -> Unit = {},
-    private val verified: () -> Unit = {}
+    private val verified: () -> Unit = {},
+    private val pulseConfirmed: () -> Unit = {}
 ) {
     /** A link check never writes, checkpoints, recovers, or clears a pending recovery. */
     fun checkConnection(): Single<AirHapticExecutionResult> = client.read().map { intensity ->
@@ -36,7 +37,7 @@ class HapticPatternRunner(
             chain = chain.flatMap {
                 val before = if (group == 0) 0L else pattern.betweenGroupDelaysMillis[group - 1]
                 Single.timer(before, TimeUnit.MILLISECONDS, scheduler).flatMap {
-                    client.write(alternate).flatMap {
+                    client.write(alternate).doOnSuccess { pulseConfirmed() }.flatMap {
                         Single.timer(pattern.restoreDelayMillis, TimeUnit.MILLISECONDS, scheduler)
                             .flatMap { restoreWrite(original) }
                     }.onErrorResumeNext { error ->
@@ -67,7 +68,7 @@ class HapticPatternRunner(
             if (!allowed()) return@flatMap Single.just(AirHapticExecutionResult(original, original, 0))
             checkpoint(original)
             val alternate = if (original == AirDirectSettingsProtocol.HAPTICS_HIGH) AirDirectSettingsProtocol.HAPTICS_LOW else AirDirectSettingsProtocol.HAPTICS_HIGH
-            fun pulse(): Single<Unit> = client.write(alternate).flatMap {
+            fun pulse(): Single<Unit> = client.write(alternate).doOnSuccess { pulseConfirmed() }.flatMap {
                 waitOrStop(pattern.restoreDelayMillis).flatMap { restoreWrite(original) }
             }.onErrorResumeNext { error ->
                 if (error is HapticsRestoreException) Single.error(error)
