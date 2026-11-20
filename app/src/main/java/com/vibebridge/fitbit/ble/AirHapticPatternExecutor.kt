@@ -12,12 +12,12 @@ import timber.log.Timber
 
 object AirHapticPatternExecutor {
     fun execute(endpoint: CoapEndpoint, pattern: AirHapticPattern,
-                checkpoint: (Int) -> Unit = {}, verified: () -> Unit = {}): Single<AirHapticExecutionResult> =
-        HapticPatternRunner(CoapSettingsClient(endpoint), checkpoint = checkpoint, verified = verified).execute(pattern)
+                checkpoint: (Int) -> Unit = {}, verified: () -> Unit = {}, pulseConfirmed: () -> Unit = {}): Single<AirHapticExecutionResult> =
+        HapticPatternRunner(CoapSettingsClient(endpoint), checkpoint = checkpoint, verified = verified, pulseConfirmed = pulseConfirmed).execute(pattern)
 
     fun executeRinging(endpoint: CoapEndpoint, pattern: AirHapticPattern, shouldContinue: () -> Boolean,
-                       checkpoint: (Int) -> Unit, verified: () -> Unit): Single<AirHapticExecutionResult> =
-        HapticPatternRunner(CoapSettingsClient(endpoint), checkpoint = checkpoint, verified = verified)
+                       checkpoint: (Int) -> Unit, verified: () -> Unit, pulseConfirmed: () -> Unit = {}): Single<AirHapticExecutionResult> =
+        HapticPatternRunner(CoapSettingsClient(endpoint), checkpoint = checkpoint, verified = verified, pulseConfirmed = pulseConfirmed)
             .executeRinging(pattern, shouldContinue)
 
     fun checkConnection(endpoint: CoapEndpoint): Single<AirHapticExecutionResult> =

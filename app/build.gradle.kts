@@ -11,8 +11,8 @@ android {
         applicationId = "com.vibebridge.fitbit"
         minSdk = 26
         targetSdk = 34
-        versionCode = 14
-        versionName = "1.3.5"
+        versionCode = 16
+        versionName = "1.3.6-rc2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {

@@ -27,12 +27,18 @@ object CallEventHandler {
                     AirBridgeDeviceSettings.saveLastStatus(context, "Incoming call: call alerts are switched off.")
                     return
                 }
-                AirBridgeOneShotService.enqueue(context, AirNotificationTrigger(
+                val deliveryId = if (AirBridgeDeviceSettings.loadAddress(context) != null)
+                    com.vibebridge.fitbit.alerts.CallAlertDelivery.begin(context) else 0L
+                val accepted = AirBridgeOneShotService.enqueue(context, AirNotificationTrigger(
                     "Incoming Call", AirBridgeDeviceSettings.loadCallPattern(context),
-                    isCall = true, isContinuousCall = true))
+                    isCall = true, isContinuousCall = true, deliveryId = deliveryId))
+                if (!accepted) com.vibebridge.fitbit.alerts.CallAlertDelivery.complete(context, deliveryId)
             }
-            TelephonyManager.CALL_STATE_IDLE, TelephonyManager.CALL_STATE_OFFHOOK ->
+            TelephonyManager.CALL_STATE_OFFHOOK -> AirBridgeOneShotService.cancelCall(context)
+            TelephonyManager.CALL_STATE_IDLE -> {
                 AirBridgeOneShotService.cancelCall(context)
+                com.vibebridge.fitbit.alerts.CallAlertDelivery.ended(context, AirBridgeOneShotService.isVibrating)
+            }
         }
     }
     fun lastDetectedLabel(context: Context): String {

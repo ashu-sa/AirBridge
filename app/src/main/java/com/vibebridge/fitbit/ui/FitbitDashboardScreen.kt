@@ -90,7 +90,10 @@ fun FitbitDashboardScreen(
     onForceSyncHealth: () -> Unit = {},
     onResetConnection: () -> Unit = {},
     onAutoDetectBand: () -> Unit = {},
-    onEnableBluetooth: () -> Unit = {}
+    onEnableBluetooth: () -> Unit = {},
+    hasBandAssociation: Boolean = false,
+    associationPending: Boolean = false,
+    onConfigureBackground: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
@@ -293,6 +296,20 @@ fun FitbitDashboardScreen(
             onOpenListenerSettings = onOpenNotificationListenerSettings
         )
 
+        Spacer(modifier = Modifier.height(18.dp))
+
+        Card(colors = CardDefaults.cardColors(containerColor = SurfaceCard),
+            shape = RoundedCornerShape(22.dp), modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(18.dp)) {
+                Text("Background alerts", color = TextWhite, fontWeight = FontWeight.SemiBold)
+                Text(if (hasBandAssociation) "Android companion access is enabled for this band. Test a call with the phone locked."
+                    else "Allow Android to start band alerts when Air Bridge is closed. Uses system companion setup; no permanent Bluetooth connection.",
+                    color = TextMuted, fontSize = 12.sp)
+                TextButton(onClick = onConfigureBackground, enabled = !associationPending && pairedDeviceAddress.isNotBlank()) {
+                    Text(if (associationPending) "Waiting for Android setup…" else if (hasBandAssociation) "Remove background access" else "Enable background alerts")
+                }
+            }
+        }
         Spacer(modifier = Modifier.height(18.dp))
 
         // ==========================================
@@ -1657,7 +1674,7 @@ fun ModernPrivacyAccordionCard() {
                     PrivacyPillarCard(
                         icon = Icons.Rounded.Sync,
                         title = "How does companion-app syncing work?",
-                        description = "AirBridge releases its connection after alerts. SIM-call alerts keep one connection while ringing, for up to 60 seconds, and then release it. Sync timing is controlled by the companion app; uninterrupted sync is not guaranteed. Opening the companion app from AirBridge pauses alerts for 5 minutes so you can sync."
+                        description = "Air Bridge closes its own Bluetooth client after alerts, but Google Health may retain a stale secure session. Sync and alarm or vibration settings can still fail even in version 1.3.5. This compatibility issue remains under investigation. Opening Google Health from Air Bridge pauses alerts for 5 minutes; it does not guarantee sync recovery."
                     )
 
                     PrivacyPillarCard(
